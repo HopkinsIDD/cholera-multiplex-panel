@@ -1,3 +1,3 @@
 # cholera-multiplex-panel
 
-This is a repository for "Monitoring cholera seroincidence using a multiplex bead assay"
+This is a repository for "Identifying Recent Cholera Infections Using a Multiplex Bead Serological Assay"

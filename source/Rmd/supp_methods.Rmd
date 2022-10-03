@@ -1,0 +1,501 @@
+---
+title: Supplementary methods for 'Identifying recent cholera infections using a
+  multiplex bead assay'
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE,fig.height = 7,
+                      fig.width = 10, eval=FALSE, cache = TRUE)
+```
+
+
+
+
+```{r functions,  eval=TRUE}
+# library(tidyverse)
+# library(readxl)
+# library(rdrop2)
+# 
+# library(randomForest)
+# library(party)
+# library(permimp)
+# library(cvAUC)
+# 
+# library(cowplot)
+# library(captioner)
+# library(corrplot)
+# 
+# library(rstan)
+# options(mc.cores = parallel::detectCores())
+# rstan_options(auto_write = TRUE)
+# library(tidybayes)
+# library(here)
+# 
+# token <- read_rds('data/generated_data/dropbox_token/token.rds')
+# 
+# source("source/final_code/shared/utils.R")
+
+source("source/final_code/luminex_recommendation/R/packages.R")
+source("source/final_code/shared/utils.R")
+
+
+```
+
+
+```{r data,  eval=TRUE}
+
+source("source/final_code/luminex_recommendation/R/load-data.R")
+
+case_days <- getTimingData()
+demo_id <-getWideData() %>% mutate(blood=factor(blood))
+
+
+#list of antigens associated with O1 cholera infection
+O1_antigens <- c("CTHT","CtxB","InabaOSPBSA","OgawaOSPBSA","Sialidase","TcpA","VCC", #Luminex
+                 "LPS") #ELISA
+
+#data frame to join to make antigen names look nice for plots
+antigen_df <- distinct(casecon_analysis,antigen) %>%
+              filter(!is.na(antigen)) %>%
+              mutate(O1_antigen= antigen %in% O1_antigens) %>%
+              mutate(antigen_pretty = recode(antigen,
+                                             "InabaOSPBSA" = "Inaba OSP",
+                                             "OgawaOSPBSA" = "Ogawa OSP",
+                                             "O139BSA" = "O139 OSP",
+                                             "CTHT" = "CT-H",
+                                             "CtxB" = "CT-B",
+                                             "LTh" = "LT-H",
+                                             "LTB"  = "LT-B",
+                                             "LPS" = "Ogawa LPS"
+                                             ))
+
+
+```
+
+\pagebreak
+
+### Overview of sample selection
+
+#### Prediction-based sampling
+
+We aimed to select a sample of the original cohort data from Bangladesh (the SMIC and PIC cohorts) to test out for this analysis of a multiplex bead assay. Rather than attempt to handpick individuals using descriptive guidelines, we decided to choose the sample that best predicts the rest of the cohort. The sample with the best prediction accuracy should have attributes that reflect that of the whole cohort, be they demographic (age, sex, blood type) or test-based (bactericidal, ELISAs).
+
+The process for making these predictions was as follows:
+
+1. Choose a random sample of individuals to create the "training set", for a given scenario (explained below)
+2. Fit a random forest model to those individuals to classify individuals as recently infected or not 
+3. Create a "balanced test set" (explained below)
+4. Use the random forest to predict the outcomes in the balanced test set
+5. Evaluate the predictions with cross-validated area under the ROC curve (cvAUC)
+
+We looked at three scenarios for selecting the training set, all of which included 20 individuals who are under 10 (‘children’) and 20 individuals who are 10 and older (‘adults’). The scenarios only differ by the number of household contacts used; it is important to note that all household contacts in PIC/SMIC were adults. In the first scenario, we randomly draw 10 adults who were index cases and 10 adults who were household contacts. In the second scenario, we draw only index cases and no household contacts. In the third scenario, we draw from the pool of index and household contacts indiscriminately; letting the predictive ability of the models choose the number of household contacts.
+
+After selecting the training set and fitting the random forest model, we predicted a "balanced test set".
+The test set consisted of the observations that were not chosen in the training set.
+We took a large random sample with replacement of the test set, but balanced such that (a) there were as many seropositive (as predicted by the model) observations as seronegative observations and (b) the seropositive observations were evenly distributed over their time since infection.
+This is important because the original cohort was skewed towards having more seropositive observations with lower times since infection.
+Having an equal number of seropositive and seronegative cases ensured that we did not reward models for erring on the side of making positive or negative predictions.
+By sampling across time since infection, we hoped to improve the model performance at times further from infection; the serosurvey model performed quite well at short time intervals but poorly at longer horizons.
+
+After resampling 10,000 times, we chose a set that had the highest cvAUC for the third scenario. This included 38 cases and 2 household contacts.
+
+#### Sample inventory
+
+After investigation of freezer stocks, samples from 39 of 40 individuals were found. Samples from two additional cases were added to the set, giving a selection of 245 samples from 41 individuals (39 cases and 2 household contacts).
+
+#### Additional sample selection
+
+After initial testing was completed, we decided to supplement the dataset with samples from 10 individuals (9 cases and 1 contact) in order to balance out the ages of individuals. In particular, we were concerned about the lack of individuals with samples between the ages of 10 and 18 in the original sample. To limit the influence of boosted antibody responses from reinfection/exposure during the follow-up period, we removed any data points that were part of or after a greater than a 2 fold-rise between measurements in vibriocidal Ogawa titers >90 days post initial infection.  Our final sample included 305 samples from 51 individuals (48 cases and 3 contacts).
+
+```{r more-samples, eval=FALSE}
+
+#original request
+request <- c("P103","P134","P137","P145","P148","P149","P25","P27","P29","P33","P35","P4","P4.02","P82.02","P84","P88","P95","P98","S1","S102","S11","S111","S112","S128","S131","S136","S138","S140","S147","S16","S29","S41","S54","S56","S67","S75","S83","S86","S93","S94")
+
+demo_id %>% filter(id %in% request) %>%
+    group_by(age_group) %>%
+    count()
+
+#those tested after checking inventory
+original <- filter(analysisData$compare_data, !str_detect(batch,"Vaccine"))  %>%
+                distinct(id,sample,status)
+
+#those newly selected (were run on vaccine plates)
+new_select <- filter(analysisData$compare_data, str_detect(batch,"Vaccine"))  %>%
+        distinct(id,sample,status)
+
+
+analysisData$compare_data %>%
+        mutate(original= ifelse(!str_detect(batch,"Vaccine"),0,1)) %>%
+        mutate(original=factor(original,labels=c("Original samples","Added samples")))%>%
+        distinct(original,id,status,age,sex)  %>%
+        ggplot(aes(x=age,fill=original))+
+        geom_histogram()+
+        theme_bw()+
+        facet_wrap(.~status)+
+        xlab("Age (years)")+
+        scale_y_continuous("Individuals",breaks=c(0,3,6,9))
+```
+
+\pagebreak
+
+### Procedure for calculating the relative antibody unit
+
+On each 384-well plate, a dilution series of positive control wells was included to adjust for between-plate variability. 
+We used this to calculate the relative antibody unit (RAU) for all samples on the plate.
+The RAU is the expected dilution of the positive control sample needed to get the same MFI as the sample.
+
+####  Dilution series
+
+Serum samples from 5 patients with culture-confirmed *V. cholerae* O1 collected 7 days after symptoms were combined to create a serum pool. Of the total 19 plates run, 7 had four dilution points (1:100, 1:400, 1:1,600, 1:6,400). After deciding to expand the range of dilutions, the next 12 plates had eight dilution points (1:10, 1:40, 1:160, 1:640, 1:2,560, 1:10,240, 1:40,960, 1:163,840). Additionally, blank control wells (i.e. not including any sera) were run on every plate. All samples were run in triplicate and MFI values were averaged.
+
+
+```{r dilution, eval=FALSE}
+
+tidy_luminex %>% 
+  filter(!is.na(dilution))%>%
+  filter(subclass=="total") %>%
+  distinct(batch,dilution)  %>%
+  group_by(dilution) %>%
+  count() %>% arrange(n)
+
+
+
+tidy_luminex %>% 
+  filter(sample=="Blank")%>%
+  filter(subclass=="total") %>%
+  group_by(isotype) %>%
+  summarize(mean(log(avgMFI)),
+            sd(log(avgMFI)),
+            n()
+            )
+  
+```
+
+#### Model parameterization and fit
+
+For each antigen, we fit four-parameter log-logistic models to each plate's dilution series. As previously described (1), the relationship between dilution and MFI is defined as follows:
+
+\[
+\begin{aligned}
+      Y_i &=\text{log(median fluorescence intensity) for sample } i \\
+      x_i &=\text{dilution for sample } i\\
+      Y_i &= c + \frac{d-c}{1+exp(b \times (log(x_i)-log(e)))} \\
+\end{aligned}
+\]
+
+We chose this parameterization given its frequent use for modeling dose-response relationships and that we only had four dilution points for many of our plates. For plates with seven dilution points, we used the drc package in R (1). For plates with four dilution points, we decided to implement a Bayesian framework so that we could fit the model with prior distributions informed by the seven dilution series wells:
+
+\[
+\begin{aligned}
+      b &\sim  \text {Normal}(\mu_b, 1)\\
+      c &\sim  \text {Normal}(\mu_c, 0.5)\\
+      d &\sim  \text {Normal}(\mu_d, 20)\\
+      e &\sim  \text {Normal}(\mu_e, 100)\\
+\end{aligned}
+\]
+
+Specifically, $\mu_c$, the mean of the prior distribution for $c$ (the lower bound of the logistic curve), was set equal to the log(MFI) for the blank sample for each plate. 
+The variance parameter of the prior distribution for $c$ was set at 0.5 to be slightly larger than observed among blank samples.
+The mean values for the other priors ($\mu_b$,$\mu_d$, and$\mu_e$) were set equal to the average values estimated from the seven dilution models.
+Variance values for the prior distributions of $b$,$d$,and $e$ were selected to be sufficiently large to be relatively uninformative.
+
+#### Relative antibody unit calculation
+
+For each antigen on each plate, the mean value for each parameter was used to calculate the relative antibody unit (RAU).
+To avoid extrapolation, all samples with a calculated RAU above 1:100 or below 1:100,000 were set equal to those values.
+Any samples with MFI values falling outside of the logistic curve were also set to the threshold value.
+
+\pagebreak
+
+### Univariate decay models
+
+
+We fit univariate decay models to describe the antibody dynamics of individuals for each biomarker. All models had two components: 1) a measurement model
+and 2) a decay model. This data set contains $n$ individuals (indexed by $i$), and $m$ total measurements (indexed by $j$). Each marker is modeled separately.
+
+#### Measurement Models
+
+We had several different types of measurements of biomarkers (multiplex bead assay (MBDA) RAU, Vibriocidal titers, and ELISA concentrations) to fit models to.
+We assumed that the observed data were normally distributed ($f_{N}$ denotes the normal density) around the true (unobserved) value.
+Each different model accounted for censored observations in various ways based on how the data was generated.
+
+
+- $Y_{ij}$ = the true value at the time of the $j$th measurement for individual i.
+- $Y^*_{ij}$ = the observed value at the time of the $j$th measurement for individual i.
+- $\sigma$ = measurement error variance
+
+
+##### Multiplex bead assay relative antibody unit measurement model
+
+For our analysis, the RAU was inverted and log10 transformed.
+Values can only take a value above -5 and below -2. 
+Any value set at -5 and -2 are censored values and are treated as so:
+
+\[
+Pr(Y^*_{ij}|Y_{ij},\sigma) =        
+        \begin{cases}
+          \int_{-\infty}^{-5} f_{N}(Y_{ij}|\sigma) &\text{if } Y^*_{ij}=-5\\
+          f_{N}(Y_{ij}|\sigma) &\text{if } -5<Y^*_{ij}<-2\\
+          \int_{-2}^{\infty} f_{N}(Y_{ij}|\sigma) &\text{if } Y^*_{ij}=-2\\
+        \end{cases}
+\]
+
+
+##### Vibriocidal assay measurement model
+
+Vibriocidal titers were divided by 5 and log2 transformed. 
+The vibriocidal  assay outputs a measurement of the highest dilution where the vibriocidal reaction still occurs.
+Therefore, the true dilution is between the reported dilution and the next dilution (i.e. interval censored).
+$V_{max}$, the largest measureable log titer, was 11.  $V_{min}$, the smallest measureable log titer was 0.
+
+\[
+Pr(Y^*_{ij}|Y_{ij},\sigma) =        
+        \begin{cases}
+          \int_{-\infty}^{V_{min}} f_{N}(Y_{ij}|\sigma) &\text{if }  Y^*_{ij}=V_{min}\\
+          \int_{Y_{ij}}^{Y_{ij}+1} f_{N}(Y_{ij}|\sigma) &\text{if } V_{min}<Y^*_{ij}<V_{max}\\
+          \int_{V_{max}}^{\infty} f_{N}(Y_{ij}|\sigma) &\text{if }   Y^*_{ij}=V_{max}\\
+        \end{cases}
+\]
+
+#####  ELISA measurement model
+
+ELISA measurements were all log10 transformed.
+No values were at the limit of detection so censoring was not accounted for.
+
+\[
+\begin{aligned}
+       Pr(Y^*_{ij}|Y_{ij},\sigma) = f_{N}(Y_{ij},\sigma) \\
+\end{aligned}
+\]
+
+
+#### Kinetic Models
+
+We also explored different modes of decay (expoenential vs. biphasic). 
+Additionally, we also investigated differences in decay between individuals with different of demographic characteristics. 
+
+##### Shared variables and parameters
+
+The following variables and parameters are shared across all decay models:
+
+- $T_{ij}$ = time of sample collection post-infection for individual i and measurement j.
+- $\omega_{i}$ = baseline value for individual $i$ 
+- $\lambda _{i}$ = boost for individual $i$ (restricted to values greater than 0)
+- $\tau_{i}$ = duration of linear incrase for individual $i$ (restricted to values greater than 0)
+- $D$ = time between infection and start of linear increase
+- $\mu^\omega$ = average individual's baseline rate
+- $\mu^\lambda$ = average individual's boost from baseline at day D (restricted to values greater than 0)
+- $\mu^{\tau}$ = average individuals log time to peak from day D
+- $\Sigma$ = covariance matrix for average baseline and boost
+
+
+All models follow the same general temporal pattern:
+
+1. Individuals start at their baseline values $\omega_{i}$
+2. After $D$ days, an individuals value immediately increases by $\lambda _{i}$
+3. Over time, an individuals value decays
+
+We allow for baseline values and boosts to vary between individuals, but assume the decay rate is constant.
+
+##### Exponential decay model
+
+For the exponential model, we assume that decay follows an exponential pattern with the decay parameter $\delta$ (restricted to be greater than zero).
+
+\[
+\begin{aligned}
+        Y_{ij}&= 
+        \begin{cases}
+                 \omega_{i}  & T_{ij} < D \\
+                  \omega_{i} +\lambda_i \times \frac{T_{ij}-D}{\tau_i -D}  & D \leq T_{ij} < \tau_i \\
+                \omega_{i} + \lambda _{i} \times e^{-\delta(T_{ij}-\tau_i)} & T_{ij} \geq \tau_i \\
+        \end{cases} \\     
+        \begin{pmatrix} \omega_{i} \\ \lambda_{i} \\ log(\tau_{i}) \end{pmatrix}
+        &\sim  \text{MVN}(\begin{pmatrix} \mu^{\omega}\\ \mu^{\lambda} \\ \mu^{\tau} \end{pmatrix},\Sigma) \\
+\end{aligned}
+\]
+
+
+##### Biphasic decay model
+
+For the biphasic decay model, we assume that each marker's value is determined by two independent components that each decay exponentially.
+The proportion of these two components is unknown.
+
+- $\theta_1$ = decay rate for first component (restricted to be greater than zero)
+- $\theta_2$ = decay rate for second component (restricted to be greater than zero)
+- $\alpha$ = proportion of boost due to first component (restricted between 0 and 1)
+
+\[
+\begin{aligned}
+        Y_{ij}&= 
+        \begin{cases}
+                 \omega_{i}  & T_{ij} < D \\
+                 \omega_{i} +\lambda_i \times \frac{T_{ij}-D}{\tau_i -D}  & D \leq T_{ij} < \tau_i \\
+                 \omega_{i} + \lambda _{i}
+                    (\alpha e^{-\theta_1 (T_{ij}-D)}+
+                    (1-\alpha)  e^{-\theta_2(T_{ij}-D)}) & T_{ij} \geq \tau_i \\
+        \end{cases} \\     
+        \begin{pmatrix} \omega_{i} \\ \lambda_{i} \\ log(\tau_{i}) \end{pmatrix}
+        &\sim  \text{MVN}(\begin{pmatrix} \mu^{\omega}\\ \mu^{\lambda} \\ \mu^{\tau} \end{pmatrix},\Sigma) \\
+\end{aligned}
+\]
+
+
+
+##### Exponential model including individual covariates (e.g. age group)
+
+To understand how kinetics varied by individual-level attributes, we included age (<10 vs 10+ years), sex (male vs female), blood group (O group vs. non-O group), and infecting serotype (Ogawa vs. Inaba) as binary variables in the model. 
+These covariates were allowed to modify the initial baseline, boost and decay rate.
+
+
+- $X_{i}$ = covariate of individual $i$ (e.g. 0 if < 10 years and 1 if 10+years)
+- $\beta^\omega$ = fixed effect of covariate on baseline
+- $\beta^\lambda$ = fixed effect of covariate on boost
+- $\beta^\tau$ = fixed effect of covariate on time to boost
+- $\beta^\delta$ = fixed effect of covariate on decay
+
+\[
+\begin{aligned}
+        Y_{ij}&= 
+        \begin{cases}
+                 \omega_{i} & T_{ij} < D \\
+                  \omega_{i}+\lambda _{i} \times \frac{T_{ij}-D}{\tau_i -D}  & D \leq T_{ij} < \tau_i \\
+                \omega_{i} + \lambda _{i}  \times e^{-(\delta+\beta^\delta X_i)(T_{ij}-\tau_i)} & T_{ij} \geq \tau_i \\
+        \end{cases} \\     
+        \begin{pmatrix} \omega_{i} \\ \lambda_{i} \\ log(\tau_{i}) \end{pmatrix}
+        &\sim  \text{MVN}(\begin{pmatrix} \mu^{\omega} +\beta^\omega X_i \\ \mu^{\lambda} +\beta^\lambda X_i  \\ \mu^{\tau} + \beta^\tau X_i \end{pmatrix},\Sigma) \\
+\end{aligned}
+\]
+
+
+##### Calculation of key parameters
+
+- Average fold-change: $\begin{cases} 10^{\mu^{\lambda}} & \text{if MBA or ELISA} \\ 2^{\mu^{\lambda}} & \text{if Vibriocidal} \end{cases}$
+- Halflife: $ln(2)/\delta$
+
+
+\pagebreak
+
+### Sample weighting
+
+The samples used to train random forest classification models are heavily skewed towards times in the early acute and convalescent period due to the higher density of blood draws during that period and the limited loss to follow-up early on (**Figure S1**). This skewed distribution of infection times likely does not represent the likely flatter distribution of infection times in a study population during a cross-sectional survey. We would expect that the assessments of model fit might be misleading or overly optimistic if this skew is not accounted for.
+
+We attempted to re-weight the samples used to train random forest models in each class based on an expected distribution of time since infection. Additionally, we used weighting to account for class imbalance such that the sum of weights among recently infected and non-recently infected were made equal.
+
+#### Expected distribution of infection times
+
+For this analysis, we decided to assume a constant hazard of infection with an annual incidence rate of 10%. When conducting a cross-sectional serosurvey at one point in time, we would expect that the time since last infection should be exponentially distributed. This could be modified given a different understanding of distribution of last infection times. Using the cumulative distribution function of an exponential distribution, we can understand the expected proportion of samples from each time slice.
+
+#### Defining time slices
+
+As shown in **Figure S1**, the day of sample collection we have for each sample are clumped around certain time points. In order to properly reweight the samples we have, we need to consider what unobserved infections the samples are ‘standing in’ for.
+
+Given a particular infection window (e.g. 200-day), we assigned each sample to whether they were inside or outside of the window. We assumed baseline samples (collected <5 days post infection) of cases and household contacts were always outside of the infection window.
+
+Next, we further divided the time inside and outside the infection window into time slices. For cases, samples were collected around 2, 7, 30, 90, 180, 270, 360, 540, 720, 900 and 1080 days. We used these times to define the time slices using the average of consecutive time points as dividers. We assumed that samples from any case after 540 days as well as uninfected contacts belonged to the same time slice.
+
+
+```{r time-slice, eval=TRUE}
+
+annual_incidence=0.1 #expected annual incidence (assuming constant hazard)
+start_window = 5 #choose when the window begins
+end_window = 200 #choose when the window ends
+decayed=540 
+
+new_day_df <- wide_analysis %>% 
+        mutate(new_day=ifelse(day_actual>=decayed | status=="Contact",
+                              decayed,day)) %>%
+        mutate(window = ifelse(day_actual>=start_window & 
+                                   day_actual <=end_window &
+                                   status=="Case", 1,0 )) %>%
+        mutate(window_type= ifelse(window==1,"During","After")) %>%
+        mutate(window_type= ifelse(window==0 & new_day < start_window,
+                                   "Before",window_type))
+    
+#calculate daily hazard
+lambda <- annual_incidence/365.25
+  
+#calculate the weights for each category
+weight_table_df <-
+  new_day_df %>%
+        group_by(status,day, window,window_type,new_day) %>%
+        count() %>% 
+        #   
+        #   window,window_type,new_day) %>%
+        # count() %>% 
+        # ungroup() %>%
+        # #weight to adjust for class imbalance
+        # mutate(class_weight= (window*(sum(n*window)) +
+        #                           (1-window)*(sum(n*(1-window))))/sum(n),
+        #        class_weight=0.5/class_weight
+        # ) %>%
+        
+        #make bounds for each category
+        arrange(window_type,new_day) %>%
+        group_by(window_type) %>%
+        #find midpoints between categories
+        mutate(lb=(new_day-lag(new_day,1))/2+lag(new_day,1)) %>%
+        mutate(ub=lead(lb,1)) %>%
+        
+        #set bounds for data bordering thresholds
+        mutate(lb=ifelse(window_type== "Before" & 
+                             new_day==min(new_day),
+                         0,lb)) %>%
+        mutate(ub=ifelse(window_type== "Before" & 
+                             new_day==max(new_day),
+                         start_window,ub)) %>%
+        mutate(lb=ifelse(window_type== "During" & 
+                             new_day==min(new_day),
+                         start_window,lb)) %>%
+        mutate(ub=ifelse(window_type== "During" & 
+                             new_day==max(new_day),
+                         end_window,ub)) %>%
+        mutate(lb=ifelse(window_type== "After" & 
+                             new_day==min(new_day),
+                         end_window,lb)) %>%
+        mutate(ub=ifelse(window_type== "After" & 
+                             new_day==max(new_day),
+                         Inf,ub))%>%
+        mutate(day_cat= paste0("[",lb,",",ub,")")) 
+
+
+weight_table_df %>%  ungroup() %>%
+  mutate(`200-day Infection Window` =ifelse(window==0,
+                                            "Outside","Inside")) %>%
+    group_by(`200-day Infection Window`) %>%
+    mutate(Percent=round(n/sum(n)*100)) %>%
+    mutate(`n (%)`= paste0(n," (",Percent,")")) %>%
+    ungroup()%>%
+    arrange(`200-day Infection Window`,status,day) %>%
+    mutate(Day=factor(day)) %>%
+    select(`200-day Infection Window`,
+            Status=status,
+           Day,
+           `Time Slice`=day_cat,
+           `n (%)`
+           ) %>%
+          flextable::flextable() %>%
+          flextable::merge_v(c(1,2),combine=TRUE) %>%
+          flextable::valign(j=c(1,2),valign="top")%>%
+                flextable::autofit()
+
+
+```
+
+
+All samples belonging to the same time slice are equally weighted and stand in for all potential infection times within the slice. If the proportion of samples for given time slice does not match what is expected from an exponential distribution, they can now be properly weighted.
+
+
+#### Weight calculation
+
+We calculated weights to account for both class imbalance and distribution of infection times. To account for class imbalance, we simply created weights so the sum of weights among samples inside and that of samples outside the window were equal. For the class weight, samples within each class were equally weighted.
+
+To account for the distribution of infection times, we calculated both the observed and the expected proportion of samples to be in each time slice. The calculated time-based weight to account for infection time is the ratio of the expected versus observed proportion (**Figure S7**).
+
+The final weight used in our analyses is the product of the class weight and the time-based weight. It was recalculated for every different length of infection window and each fold in cross-validation.
+
+\pagebreak
+

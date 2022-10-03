@@ -1,0 +1,159 @@
+---
+title: Supplementary table for 'Identifying recent cholera infections using a
+  multiplex bead assay'
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE,fig.height = 7, cache = TRUE,      fig.width = 10, eval=FALSE)
+```
+
+
+
+
+```{r functions,  eval=TRUE}
+# library(tidyverse)
+# library(readxl)
+# library(rdrop2)
+# 
+# library(randomForest)
+# library(party)
+# library(permimp)
+# library(cvAUC)
+# 
+# library(cowplot)
+# library(captioner)
+# library(corrplot)
+# 
+# library(rstan)
+# options(mc.cores = parallel::detectCores())
+# rstan_options(auto_write = TRUE)
+# library(tidybayes)
+# library(here)
+# 
+# token <- read_rds('data/generated_data/dropbox_token/token.rds')
+# 
+# source("source/final_code/shared/utils.R")
+
+source("source/final_code/luminex_recommendation/R/packages.R")
+source("source/final_code/shared/utils.R")
+
+
+```
+
+
+```{r data,  eval=TRUE}
+
+source("source/final_code/luminex_recommendation/R/load-data.R")
+
+case_days <- getTimingData()
+demo_id <-getWideData() %>% mutate(blood=factor(blood))
+
+
+#list of antigens associated with O1 cholera infection
+O1_antigens <- c("CTHT","CtxB","InabaOSPBSA","OgawaOSPBSA","Sialidase","TcpA","VCC", #Luminex
+                 "LPS") #ELISA
+
+#data frame to join to make antigen names look nice for plots
+antigen_df <- distinct(casecon_analysis,antigen) %>%
+              filter(!is.na(antigen)) %>%
+              mutate(O1_antigen= antigen %in% O1_antigens) %>%
+              mutate(antigen_pretty = recode(antigen,
+                                             "InabaOSPBSA" = "Inaba OSP",
+                                             "OgawaOSPBSA" = "Ogawa OSP",
+                                             "O139BSA" = "O139 OSP",
+                                             "CTHT" = "CT-H",
+                                             "CtxB" = "CT-B",
+                                             "LTh" = "LT-H",
+                                             "LTB"  = "LT-B",
+                                             "LPS" = "Ogawa LPS"
+                                             ))
+
+
+```
+
+\pagebreak
+
+
+### Table S1. Individual characteristics of culture confirmed cholera patients and uninfected household contacts
+
+All cases were hospitalized and solely had O1 Vibrio Cholerae isolated. Inaba O1 was isolated from non-Ogawa cases 
+
+
+```{r tableone, eval=TRUE}
+
+characteristics <- casecon_analysis %>% distinct(id,age_group,sex,blood,culture,status,dehydration, `Case Watery Diarrhea Day 7`, `Contact Watery Diarrhea Day 2`,hospital_hrs)
+
+# get categorical variables together
+demotable_1 <- characteristics %>% group_by(status) %>%
+                summarize(n=n(),
+                          `< 5 years`=sum(age_group=="<5 years"),
+                          `5-9 years`=sum(age_group=="5-9 years"),
+                          `10-17 years`=sum(age_group=="10-17 years"),
+                          `18+ years`=sum(age_group=="18+ years"),
+                          
+                          Female = sum(sex=="female"),
+                          
+                          `O Blood Group` = sum(blood=="O"),
+                          
+                          `V. cholerae O1 Ogawa isolated` = sum(culture=="O1-Ogawa"),
+                          `Watery Diarrhea at day 7` = sum(`Case Watery Diarrhea Day 7`=="Yes")
+                          ) %>%
+        gather(variable,value,-c(status,n)) %>% 
+        filter(!is.na(value)) %>%
+        mutate(percent=round(value/n*100)) %>%
+        mutate(final_value= paste0(value," (",percent,")")) %>%
+        mutate(row_name=paste(variable,"(%)")) %>%
+        select(status,n,row_name,final_value)
+
+#get continuous variables together
+demotable_2 <- characteristics %>%
+        filter(status=="Case") %>%
+        group_by(status)%>%
+        summarize( n= n(),
+                        median = round(median(hospital_hrs)),
+                        lower= round(quantile(hospital_hrs,0.25,na.rm = TRUE)),
+                        upper= round(quantile(hospital_hrs,0.75,na.rm = TRUE))
+
+        ) %>% 
+        mutate(row_name="Median Hours of Hospitalization [IQR]") %>%
+        mutate(final_value= paste0(median," [",lower,", ",upper,"]")) %>%
+        select(status,n,row_name,final_value)
+
+#bring together and add additional rows
+demotable_3 <- bind_rows(
+        demotable_1,demotable_2
+) %>% mutate(status=ifelse(status=="Case","Cholera cases","Household contacts")) %>%
+        mutate(column_header=paste0(status,"\n(n=",n,")")) %>%
+        select(column_header,row_name,final_value) %>%
+        spread(column_header,final_value) %>%
+        mutate(`Household contacts\n(n=3)`=ifelse(is.na(`Household contacts\n(n=3)`),
+                                                  "-",`Household contacts\n(n=3)`)) %>%
+        bind_rows(data.frame(row_name="Age Group")) %>%
+        mutate(row_name=factor(row_name,
+                               levels=c("Age Group",
+                                       "< 5 years (%)","5-9 years (%)",
+                                       "10-17 years (%)", "18+ years (%)", 
+                                       "Female (%)",
+                                        "O Blood Type (%)", "V. cholerae O1 Ogawa isolated (%)",
+                                       "Median Hours of Hospitalization [IQR]","Watery Diarrhea at day 7 (%)" 
+                               ))) %>%
+        arrange(row_name) %>%
+        rename(`Characteristics`=row_name)
+
+#turn into flextable object
+demotable_ft <- demotable_3[1:7,] %>% flextable::flextable() %>%
+                flextable::autofit() %>%
+                flextable::padding(i=2:5, j=1, padding.left=20) %>%
+                flextable::align(align = "center",j=2:3,part="all")
+
+
+
+demotable_ft
+
+```
+
+

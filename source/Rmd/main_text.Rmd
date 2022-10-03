@@ -1,0 +1,561 @@
+---
+title: "Main text statistics for Luminex Recommendation Paper"
+author: "Forrest Jones"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE,fig.height = 7,
+                      fig.width = 10)
+```
+
+
+```{r functions, eval=TRUE}
+
+source("source/final_code/luminex_recommendation/R/packages.R")
+source("source/final_code/shared/utils.R")
+
+
+```
+
+
+```{r data, eval=TRUE}
+
+source("source/final_code/luminex_recommendation/R/load-data.R")
+
+case_days <- getTimingData()
+wideData <- demo_id <-getWideData() %>% mutate(blood=factor(blood))
+
+```
+
+All values calculated here are not found in the main figures or supplement.
+
+## Methods
+
+### Study Population 
+
+```{r timingstuff}
+
+
+# #use this code to eventually replace sample timing things
+# 
+# #limit luminex data to just id, day, sample
+# Luminex <-getLuminexSamplesRAU() %>%
+#             left_join(wideData) %>%
+#             filter(status==c("Case","Contact")) %>%
+#             distinct(id,day,sample)
+# 
+# pic_DATES <- bind_rows(
+# 
+# # file 1
+# read.csv(here::here('data','raw_data','cohort_data','dates_data','pic_date_OCT.csv'),as.is=T)%>%
+#         select(SID,starts_with("CDAT"))  %>%
+#         gather(day,date_visit,-SID) %>%
+#         mutate(day=str_remove(day,"CDAT") )%>%
+#         mutate(day=case_when(
+#                 day =="7D" ~ 7,
+#                 day =="1M" ~ 30,
+#                 day =="3M" ~ 90,
+#                 day =="6M" ~ 180,
+#                 day =="9M" ~ 270,
+#                 day =="12M" ~ 360)) %>%
+#                 filter(date_visit!="")%>%
+#         mutate(date_visit=as.Date(date_visit,
+#                                    format="%d-%b-%Y",origin="1970-1-1")),
+# 
+# 
+# # #file 2
+# read.csv(here::here('data','raw_data','cohort_data','dates_data','pic_final_2012_FromAshraf_6.2015.csv'),as.is=T)%>%
+#         select(sid,starts_with("CDAT")) %>%
+#         rename(SID=sid) %>%
+#         gather(day,date_visit,-SID) %>%
+#         mutate(day=str_remove(day,"cdat") %>% toupper) %>%
+#         filter(day %in% c("7D","1M","3M","6M",
+#                           "9M","12M"
+#                           ))%>%
+#         mutate(day=case_when(
+#                 day =="7D" ~ 7,
+#                 day =="1M" ~ 30,
+#                 day =="3M" ~ 90,
+#                 day =="6M" ~ 180,
+#                 day =="9M" ~ 270,
+#                 day =="12M" ~ 360)) %>%
+#                 filter(date_visit!="")%>%
+#         mutate(date_visit=as.Date(date_visit,
+#                            format="%d/%m/%Y",origin="1970-1-1")) 
+# 
+# )  %>%
+#         mutate(id=paste0("P",SID)) %>%
+#         mutate(sample=paste0(id," d",day)) %>%
+#         distinct(id,day,sample,date_visit)
+# 
+# 
+# ## to make it easier to get into same format at smic_lab, I will deal with the three visits
+# ## seperatley. Not efficient but...
+# rename_smic_lab <- function(dat,day=7){
+#     dat  %>% rename_at(.vars = vars(ends_with(day)),
+#                              .funs = funs(sub(paste0(day,"$"), "", .))) %>%
+#     rename_all(toupper)
+# 
+# }
+# 
+# ## merge with long term dates for cases
+# path_to_excel_file <- here('data','raw_data','cohort_data','dates_data','SMIC follow up Enrollment Dates.xlsx')
+# 
+# smic_post365_dates <- full_join(
+#     read_excel(path_to_excel_file,sheet = "D540",na=c(NA,"Dropout","--")) %>% rename(SID = `SMIC ID`,
+#                                                                                                               date_540d =  `Date of Enrollment, D540`),
+#     read_excel(path_to_excel_file,sheet = "D720",na=c(NA,"Dropout","--")) %>% rename(SID = `SMIC ID`,
+#                                                                                                               date_720d =  `Date of Enrollment, D720`)) %>% 
+# full_join(.,
+#           read_excel(path_to_excel_file,sheet = "D900",na=c(NA,"Dropout","--")) %>% rename(SID = `SMIC ID`,
+#                                                                                                                     date_900d =  `Date of Enrollment, D900`)
+#           ) %>%
+# mutate(date_540d = as.Date(date_540d,format = "%d/%m/%y"),
+#        date_720d = as.Date(date_720d,format = "%d/%m/%y"),
+#        date_900d = as.Date(date_900d,format = "%d/%m/%y"),
+#        date_540d = if_else(SID == 29,as.Date("2013-10-01"),date_540d) ## fixing this seemingly clear mistake
+#        ) %>%
+# filter(!(is.na(date_540d) & is.na(date_720d) & is.na(date_900d)))
+# 
+# 
+# smic_lab2_540 <- read.csv(here('data','raw_data','cohort_data','dates_data','SMICdata.vbx.plasma.Azman.2018.csv')) %>%
+# select(sid,matches("7$")) %>%
+# rename_smic_lab(day="7") %>%
+# mutate(LBDAY = 540) %>%
+# select(-starts_with("pm"),-starts_with("sm")) ## getting rid of IgM since we bring in seperateley
+# 
+# 
+# 
+# smic_DATES<- bind_rows(
+#         
+#         #file 3
+#         read.csv(here('data','raw_data','cohort_data','dates_data','smic_date_OCT.csv'),as.is=T)%>%
+#                 select(SID,starts_with("CDAT"))  %>%
+#                 gather(day,date_visit,-SID) %>%
+#                 mutate(day=str_remove(day,"CDAT") )%>%
+#                 mutate(day=case_when(
+#                         day =="7D" ~ 7,
+#                         day =="1M" ~ 30,
+#                         day =="3M" ~ 90,
+#                         day =="6M" ~ 180,
+#                         day =="9M" ~ 270,
+#                         day =="12M" ~ 360))%>%
+#                         filter(date_visit!="")%>%
+#         mutate(date_visit=as.Date(date_visit,
+#                                    format="%d-%b-%Y",origin="1970-1-1")),
+#         
+#         
+#         
+#         #file 4
+#         read.csv(here('data','raw_data','cohort_data','dates_data','SMICdata.vbx.plasma.Azman.2018.csv')) %>%
+#                 select(SID=sid,starts_with("CDAT"))%>%
+#                 mutate(date_visit=as.character(cdat7d)) %>%
+#                 select(-cdat7d) %>%
+#                 mutate(day=7) %>%
+#                 filter(date_visit!="") %>%
+#         mutate(date_visit=as.Date(date_visit,
+#                                    format="%d-%b-%y",origin="1970-1-1")),
+# 
+# 
+#         #file 5
+#         smic_post365_dates %>%
+#                 gather(day,date_visit,-SID) %>%
+#                 mutate(day=str_remove(day,"date_")) %>%
+#                 mutate(day=str_remove(day,"d") %>% as.numeric) %>%
+#                 filter(!is.na(date_visit)),
+# 
+# 
+# #         #file 6
+#         smic_lab2_540 %>% select(SID,date_visit=QFHDAT,day=LBDAY) %>%
+#                 filter(date_visit!="") %>%
+#         mutate(date_visit=as.Date(date_visit,
+#                                    format="%d-%b-%y",origin="1970-1-1"))
+# ) %>% mutate(id=paste0("S",SID)) %>%
+#         mutate(sample=paste0(id," d",day)) %>%
+#         distinct(id,day,sample,date_visit)
+# 
+# 
+# theDATES <- bind_rows(smic_DATES,pic_DATES)
+# 
+# master_data <- readstata13::read.dta13("data/raw_data/cohort_data/CIRS PIC SMIC Master DB March 2019.dta") 
+# labels <- readstata13::varlabel(master_data)
+# labels <- data.frame(variable=names(labels),description=as.character(labels))
+# 
+# master_data_ltd<- filter(master_data, studycode %in% c("SMIC","PIC")) %>%
+#     mutate(studycode=substr(studycode,1,1)) %>%
+#     mutate(id=paste0(studycode,sid)) %>%
+#     select(id, date_enroll=dten,diadur) %>%
+#     filter(id %in% Luminex$id)
+# 
+# 
+# huh <- distinct(Luminex,id,sample,day)  %>%
+#                 left_join(master_data_ltd) %>% 
+#                 left_join(theDATES) %>%
+#                 mutate(diff=(date_visit-date_enroll)%>% as.numeric) %>%
+#                 mutate(diff=ifelse(is.na(diff),day,diff)) %>%
+#                 # - diarrhea duration
+#                 # - incubation period (1.4 days)
+#                 dplyr::mutate(symptom_lag = ifelse(is.na(diadur),0,diadur/24)) %>%
+#                 #calculate time to enrollment
+#                 mutate(tte=round(symptom_lag+1.4)) %>%
+#                 mutate(new_actual=tte+diff)
+# 
+# 
+# filter(huh, day %in% c(2,7)) %>%
+#         ggplot(aes(x=new_actual))+
+#                 geom_histogram(aes(fill=factor(day)))
+
+
+```
+
+```{r study-pop}
+ 
+demo_id %>% filter(studycode  %in% c("SMIC","PIC")) %>% pull(date_enroll) %>%
+        lubridate::year() %>%
+        summary()
+
+
+#those tested after checking inventory
+filter(analysisData$compare_data, !str_detect(batch,"Vaccine"))  %>%
+                distinct(id,sample,status,age) %>%
+                group_by(age<10) %>%
+                summarize(samples=n(),
+                          length(unique(id))) 
+                
+
+filter(analysisData$compare_data, str_detect(batch,"Vaccine"))  %>%
+                distinct(id,sample,status,age) %>%
+                summarize(samples=n(),
+                          min(age),
+                          max(age),
+                          length(unique(id))) 
+
+
+
+
+```
+
+### Serological testing and data processing 
+
+
+```{r testing}
+
+analysisData$compare_data$date %>% summary()
+
+```
+
+### Statistical Analysis
+
+```{r analysis}
+
+raw <- read_rds(paste0("data/generated_data/2021-10-25-raw-data.rds"))
+
+raw %>% 
+  filter(subclass=="total") %>%
+  mutate(lowCount=Count<30) %>%
+  pull(lowCount)%>%
+  mean()%>%
+  round(4)*100 
+
+
+
+```
+
+## Results
+
+
+### Description of individuals and timing of samples
+
+
+```{r describe-sample}
+
+characteristics_sample <- casecon_analysis %>% 
+            distinct(id,sample,day,day_actual,age,age_group,sex,blood,culture,
+                     status,dehydration, `Case Watery Diarrhea Day 7`,
+                     `Contact Watery Diarrhea Day 2`,hospital_hrs)
+
+
+characteristics_sample %>% group_by(status) %>% summarize(n=n(),
+                                                          min(day_actual),
+                                                          max(day_actual)
+                                                          ) 
+
+characteristics_id <- casecon_analysis %>% 
+            distinct(id,age,age_group,sex,blood,culture,
+                     status,dehydration, `Case Watery Diarrhea Day 7`,
+                     `Contact Watery Diarrhea Day 2`,hospital_hrs)
+
+
+
+table(characteristics_id$culture)/48 
+
+characteristics_id %>% group_by(status) %>%
+          summarize(
+            round(median(age)), round(quantile(age,0.25)),
+            round(quantile(age,0.75)),
+            
+            male=round(mean(sex=="male"),2),
+            Oblood=round(mean(blood=="O"),2)
+            
+          )
+
+# 
+# characteristics_id %>% filter(status=="Case") %>%
+#           summarize(
+#             round(median(hospital_hrs)), round(quantile(hospital_hrs,0.25)),
+#             round(quantile(hospital_hrs,0.75))
+#           )
+
+
+
+characteristics_sample %>% filter(status=="Case") %>% 
+      group_by(day) %>%
+      summarise(
+                n=n(),
+                percent=n/48,
+                min(day_actual),
+                max(day_actual)
+                )
+
+
+filter(characteristics_sample,day>=270) %>%
+        group_by(id) %>%
+        summarize(samples=n()) %>%
+        group_by(samples) %>%
+        summarize(n=n())
+
+age_group_ltfu <- characteristics_sample %>% filter(status=="Case") %>% 
+      group_by(day,age_group) %>%
+      summarise(
+                n=n()
+                ) 
+
+
+age_group_ltfu %>% group_by(age_group) %>%
+      mutate(n=n/max(n)) %>%
+      spread(age_group,n) 
+
+
+# age_group_ltfu %>% group_by(age_group) %>%
+#       # mutate(n=n/max(n)) %>%
+#       spread(age_group,n) %>%
+#       filter(!is.na(`<5 years`)) %>% select(-day) %>%
+#       as.matrix() %>%
+#       chisq.test()
+ 
+
+
+age_group_ltfu %>% ggplot(aes(x=as.factor(as.numeric(day)),y=n,col=age_group))+
+                  geom_point()+
+                  geom_line(aes(group=age_group))
+
+
+
+
+```
+
+
+### Kinetics of biomarkers in confirmed cholera cases 
+
+
+
+```{r kinetics}
+
+# Among CT-B,CT-H, Inaba OSP and Ogawa OSP, the median day of peak levels ranged between 25-36 days for IgG, at 8 days for IgA, and between 8 - 63.7 days for IgM. Across isotypes for Ogawa and Inaba OSP,  individual variability in MBA measurements 
+
+casecon_analysis %>% 
+          filter(antigen %in% c("OgawaOSPBSA","InabaOSPBSA","CtxB","CTHT")) %>%
+          filter(status=="Case") %>%
+          filter(str_detect(full_test,"RAU")) %>%
+          group_by(id,isotype,full_test) %>%
+              filter(value==max(value)) %>%
+              summarize(day=mean(day_actual)) %>%
+          group_by(full_test,isotype) %>%
+          summarize(n(),
+                    day=round(median(day))
+                    ) %>%
+          arrange(isotype,day) %>%
+          group_by(isotype) %>%
+          summarize(min=min(day),
+                    max=max(day))
+
+
+# Across isotypes for Ogawa and Inaba OSP,  individual variability in MBA measurements increased at day 7 and did not return to baseline levels until over 180 days (Figure 2); in contrast, individual variability remained relatively constant over time for CT-B and CT-H.
+          
+casecon_analysis %>% 
+          filter(antigen %in% c("OgawaOSPBSA","InabaOSPBSA","CtxB","CTHT")) %>%
+          filter(status=="Case") %>%
+          filter(str_detect(full_test,"RAU")) %>%
+          filter(!day %in% c(720,1080)) %>%
+              group_by(day,isotype,antigen) %>%
+                summarize(sd=sd(value)) %>% 
+            ggplot(aes(x=factor(day),y=sd,col=isotype))+
+              geom_point()+
+              geom_line(aes(group=isotype))+
+              facet_wrap(.~antigen)
+
+
+
+```
+
+
+```{r}
+
+# summary_cov_df <- read_rds(
+#            paste0("source/final_code/luminex_recommendation/generated_rds/decay_model_results/covariates/summary_cov_df.rds"))
+# 
+# 
+# #Fold change difference table
+# FC_diff_table<- summary_cov_df %>% filter(str_detect(parameter,"baseline_ratio|foldchange_ratio")) %>%
+#                 select(marker,covariate,parameter,`X2.5.`,`X50.`,`X97.5.`) %>%
+#                 gather(quantile,value,-c(marker,covariate,parameter)) %>%
+#                 # mutate(value=10^value) %>%
+#                 spread(quantile,value) %>% 
+#                 mutate(CI =paste0(signif(`X50.`,3)," (",
+#                        signif(`X2.5.`,3),"-",
+#                        signif(`X97.5.`,3),")")) %>%
+#                 mutate(CI=ifelse((`X2.5.`<1)+(`X97.5.`>1)==2,CI,paste0(CI,"*"))) 
+# 
+# 
+# 
+# 
+# #half life change difference table
+# HL_diff_table <- summary_cov_df %>% filter(str_detect(parameter,"halflife_diff")) %>%
+#                 select(marker,covariate,parameter,`X2.5.`,`X50.`,`X97.5.`) %>%
+#                 mutate(CI =paste0(round(`X50.`)," (",
+#                        round(`X2.5.`),"-",
+#                        round(`X97.5.`),")")) %>%
+#                 mutate(CI=ifelse(`X2.5.`*`X97.5.`>0,paste0(CI,"*"),CI)) 
+# 
+# 
+# # Under 10 differences
+# FC_diff_table %>% filter(covariate=="Under 10") %>%
+#         filter(marker %in% c("Luminex_IgG_OgawaOSPBSA","Luminex_IgG_InabaOSPBSA")) %>%
+#         filter(parameter=="foldchange_ratio") %>%
+#         mutate(`X2.5.`=round(1/`X2.5.`,1),
+#                `X50.`=round(1/`X50.`,1),
+#                `X97.5.`=round(1/`X97.5.`,1)
+#                )
+# 
+# 
+# HL_diff_table %>% filter(covariate=="Under 10") %>%
+#         filter(marker %in% c("Luminex_IgG_OgawaOSPBSA","Luminex_IgG_InabaOSPBSA")) 
+# 
+# 
+# # Ogawa vs. Inabadifferences
+# FC_diff_table %>% filter(covariate=="Ogawa") %>%
+#         filter(marker %in% c("Luminex_IgM_OgawaOSPBSA",
+#                              "Luminex_IgG_OgawaOSPBSA",
+#                              "Luminex_IgA_OgawaOSPBSA"
+#                              )) %>%
+#         filter(parameter=="foldchange_ratio")  %>%
+#         mutate(`X2.5.`=round(`X2.5.`,1),
+#                `X50.`=round(`X50.`,1),
+#                `X97.5.`=round(`X97.5.`,1)
+#                )
+# 
+# FC_diff_table %>% filter(covariate=="Ogawa") %>%
+#         filter(marker %in% c("Luminex_IgM_InabaOSPBSA",
+#                              "Luminex_IgG_InabaOSPBSA",
+#                              "Luminex_IgA_InabaOSPBSA"
+#                              )) %>%
+#         filter(parameter=="foldchange_ratio") %>%
+#         mutate(`X2.5.`=round(1/`X2.5.`,1),
+#                `X50.`=round(1/`X50.`,1),
+#                `X97.5.`=round(1/`X97.5.`,1)
+#                )
+
+
+```
+
+
+
+### Identification of recent infections with cross-sectional serologic measurements 
+
+```{r tvCVAUC}
+
+cvAUCdf <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/1_scan_cvAUC_df.rds")
+
+cvAUCdf %>% 
+        filter(predictors=="Net MFI All") %>% 
+        pull(cvAUC) %>% summary()
+
+
+```
+
+```{r cvAUC, eval=FALSE}
+
+#get ratios to to see relative cvAUC of traditional and MBA markers
+marker_set_names <- c( "Vibriocidal &\nELISA Markers","Vibriocidal\nMarkers","ELISA\nMarkers","All MBA\nMarkers","IgG MBA\nMarkers", "IgA MBA\nMarkers","IgM MBA\nMarkers")
+
+marker_cvAUC_list <- read_rds(
+           "source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/cvAUC_list.rds"
+          )  
+
+
+
+cv_marker_df <- data.frame()
+times <- c(45,120,200,300)
+
+for(k in 1:length(marker_cvAUC_list)){
+  for(j in as.character(times)){
+        cv_marker_df <- bind_rows(cv_marker_df,
+                                   marker_cvAUC_list[[k]][[j]][[4]] %>%
+                                          mutate(
+                                  model=marker_set_names[k])
+                                  )
+  }
+}
+
+cv_marker_df %>% filter(model %in% c( "Vibriocidal &\nELISA Markers","All MBA\nMarkers")) %>%
+                dplyr::select(model,end_window,cvAUC) %>%
+                mutate(model=substr(model,1,7)) %>%
+                spread(model,cvAUC) %>%
+                mutate(ratio=`All MBA`/Vibrioc)
+
+
+#get ratios to to see relative cvAUC of traditional and MBA markers
+cv_marker_df %>% filter(model %in% c( "Vibriocidal &\nELISA Markers","All MBA\nMarkers")) %>%
+                dplyr::select(model,end_window,cvAUC) %>%
+                mutate(model=substr(model,1,7)) %>%
+                spread(model,cvAUC) %>%
+                mutate(ratio=`All MBA`/Vibrioc)
+
+#get relative reduction
+cv_marker_df %>% filter(model %in% marker_set_names[str_detect(marker_set_names,"Ig[A|G|M]")]) %>%
+                dplyr::select(model,end_window,cvAUC) %>%
+                left_join(cv_marker_df %>%
+                                  filter(model %in% c("All MBA\nMarkers")) %>%
+                                  dplyr::select(end_window,AllMBA=cvAUC) ,
+                          by = "end_window"
+                                  ) %>%
+                mutate(reduction=round((AllMBA-cvAUC)*100)) %>%
+                mutate(relative_reduction=round((AllMBA-cvAUC)/AllMBA*100)) %>%
+                filter(end_window==200)
+
+        
+
+```
+
+
+```{r sens-spec}
+
+tvsens_df <-read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/tvsens-spec/tvsens_df.rds")
+
+tvsens_df %>% filter(seropos_type=="spec90_seropos") %>%
+                group_by(end_window) %>%
+                summarize(min(median) %>% round(2),
+                          max(median) %>% round(2)
+                          )
+
+fit_ssy_df<- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/tvsens-spec/cutoff_fit_ssy_df.rds")
+# can use this to find the sensitivity and specificity for your cutoff here
+fit_ssy_df %>% filter(round(Luminex_IgG_CtxB,1)==-3.1,
+                      round(Luminex_IgG_OgawaOSPBSA,1)==-4
+                       )
+```
+
+## Discussion
+

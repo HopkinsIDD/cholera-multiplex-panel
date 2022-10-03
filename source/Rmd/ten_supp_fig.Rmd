@@ -1,0 +1,866 @@
+---
+title: Supplementary materials for 'Identifying recent cholera infections using a
+  multiplex bead assay'
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document:
+    self_contained: no
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE,fig.height = 7,
+                      fig.width = 10, eval=FALSE, dev = "pdf")
+```
+
+
+
+
+```{r functions,  eval=TRUE}
+# library(tidyverse)
+# library(readxl)
+# library(rdrop2)
+# 
+# library(randomForest)
+# library(party)
+# library(permimp)
+# library(cvAUC)
+# 
+# library(cowplot)
+# library(captioner)
+# library(corrplot)
+# 
+# library(rstan)
+# options(mc.cores = parallel::detectCores())
+# rstan_options(auto_write = TRUE)
+# library(tidybayes)
+# library(here)
+# 
+# token <- read_rds('data/generated_data/dropbox_token/token.rds')
+# 
+# source("source/final_code/shared/utils.R")
+
+source("source/final_code/luminex_recommendation/R/packages.R")
+source("source/final_code/shared/utils.R")
+
+
+```
+
+
+```{r data,  eval=TRUE}
+
+source("source/final_code/luminex_recommendation/R/load-data.R")
+
+case_days <- getTimingData()
+demo_id <-getWideData() %>% mutate(blood=factor(blood))
+
+
+#list of antigens associated with O1 cholera infection
+O1_antigens <- c("CTHT","CtxB","InabaOSPBSA","OgawaOSPBSA","Sialidase","TcpA","VCC", #Luminex
+                 "LPS") #ELISA
+
+#data frame to join to make antigen names look nice for plots
+antigen_df <- distinct(casecon_analysis,antigen) %>%
+              filter(!is.na(antigen)) %>%
+              mutate(O1_antigen= antigen %in% O1_antigens) %>%
+              mutate(antigen_pretty = recode(antigen,
+                                             "InabaOSPBSA" = "Inaba OSP",
+                                             "OgawaOSPBSA" = "Ogawa OSP",
+                                             "O139BSA" = "O139 OSP",
+                                             "CTHT" = "CT-H",
+                                             "CtxB" = "CT-B",
+                                             "LTh" = "LT-H",
+                                             "LTB"  = "LT-B",
+                                             "LPS" = "Ogawa LPS"
+                                             ))
+
+
+```
+
+\pagebreak
+
+
+
+## Supplementary Figures and Tables
+
+```{r captions2,  eval=TRUE}
+vars <- list()
+
+tab_nums <- captioner(prefix = "Table S", auto_space = FALSE)
+fig_nums <- captioner(prefix = "Figure S", auto_space = FALSE)
+
+fig_nums(name = "vibplot", caption = "Vibriocidal Ogawa measurements among individuals selected from the SMIC and PIC cohorts", display = FALSE)
+
+fig_nums(name = "case-timing", caption = "Timing of sample collection among culture confirmed cases relative to date of infection", display = FALSE)
+
+tab_nums(name = "tableone", caption = "Individual characteristics of culture confirmed cholera patients and uninfected household contacts", display = FALSE)
+
+fig_nums(name = "weighting", caption = "Weights used for random forest models at each infection window", display = FALSE)
+
+fig_nums(name = "supp-spaghetti-RAU", caption = "Multiplex bead assay relative antibody unit measurements of IgG, IgM, and IgA against additional antigens among culture confirmed cholera patients", display = FALSE)
+
+fig_nums(name = "correlellogram", caption = "Correlation matrix of multiplex bead assay biomarkers", display = FALSE)
+
+
+fig_nums(name = "spaghetti-agegroup", caption = "Multiplex bead assay RAU measurements of IgG, IgM, and IgA against V. cholerae O1 antigens among culture confirmed cholera patients, by age group", display = FALSE)
+
+fig_nums(name = "spaghetti-serotype", caption = "Multiplex bead assay RAU measurements of IgG, IgM, and IgA against V. cholerae O1 antigens among culture confirmed cholera patients, by infecting serotype", display = FALSE)
+
+
+fig_nums(name = "marker-importance",
+         caption="Cross-validated receiver operator characteristic curves and permutation importance for random forest models using 45-day, 120-day, 200-day, and 300-day infection window",
+         display=FALSE)
+
+
+
+```
+
+### `r fig_nums("vibplot")`
+
+Vibriocidal titer measurements were transformed by dividing the measurement by 5 and then taking the logarithm (base 2) (A). X-axis indicates the approximate collection day for each measurement for cases. All measurements for uninfected household contacts are shown regardless of collection day (B).
+
+```{r vibplot, eval=TRUE, fig.height=5}
+
+#get selected individuals here
+selected <- distinct(wide_analysis,id,sample,day) %>%
+                mutate(selected="Selected")
+
+original <- getLongSeroTidy() %>%
+        left_join(demo_id, by="id") %>%
+        left_join(selected, by= c("id","day")) %>%
+        mutate(selected=ifelse(is.na(selected),"Not selected",selected)) %>%
+        mutate(`Age Group` = ifelse(age<10,"<10 years","10+ years"))%>%
+        mutate(`Age Group`=factor(`Age Group`,levels=c("<10 years","10+ years"))) %>%
+        mutate(`Contact Infection Status`=case_when(
+                inf_category=="Uninfected" ~ "Uninfected",
+                is.na(inf_category) ~ "Missing",
+                TRUE ~ "Infected"
+        )) %>%
+                filter(full_test=="Vibriocidal_Ogawa") %>%
+        mutate(vib_new=log2(value/5))
+        
+#         
+# weird_days <- 
+#         bind_rows(
+#         #         wide_analysis %>% 
+#         # distinct(day,id,sample,Vibriocidal_Inaba) %>%
+#         # arrange(id,as.numeric(day)) %>%
+#         # group_by(id)%>%
+#         # filter(day>=90) %>%
+#         # mutate(diff=Vibriocidal_Inaba-lag(Vibriocidal_Inaba,1)) %>%
+#         # filter(lead(diff,1)>1),
+#         # 
+#         wide_analysis %>% 
+#         distinct(day,id,sample,Vibriocidal_Ogawa) %>%
+#         arrange(id,as.numeric(day)) %>%
+#         group_by(id)%>%
+#         filter(day>=90) %>%
+#         mutate(diff=Vibriocidal_Ogawa-lag(Vibriocidal_Ogawa,1)) %>%
+#         filter(lead(diff,1)>1)
+#         )  %>%
+#         select(id,weird_day=day) %>%
+#         left_join(original,by="id") %>%
+#         filter(day>=weird_day)
+
+
+
+p1a <- original %>%   filter(status=="Case") %>%
+                mutate(`Age Group`=paste0("Case\n",`Age Group`)) %>%
+                ggplot(aes(x=factor(day),y=vib_new,col=selected))+
+                geom_boxplot()+
+                facet_grid(.~`Age Group`)+
+                # scale_alpha_manual(values=c(0.1,0.2))+
+                theme_bw()+
+                scale_y_continuous("log2(Vibriocidal Ogawa Titer/5)",breaks=seq(0,14,2))+
+                xlab("Collection Day")+
+                theme(panel.grid.minor = element_blank(),
+                      legend.position = "none"
+                      )
+
+p1b <- original %>%   filter((status=="Contact" & `Contact Infection Status`=="Uninfected")) %>%
+                mutate(status="Uninfected\nContact") %>%
+                rename(Status=selected) %>%
+                ggplot(aes(y=vib_new,col=Status,x=Status))+
+                geom_boxplot()+
+                facet_grid(.~status)+
+                theme_bw()+
+                scale_y_continuous("log2(Vibriocidal Ogawa Titer/5)",breaks=seq(0,14,2))+
+                theme(panel.grid.minor = element_blank(),
+                      axis.title.x = element_blank(),
+                      axis.text.x = element_text(angle=45,hjust=1)
+                      
+)
+
+
+plot_grid(p1a,p1b,ncol=2,
+          labels=c("A","B"),align = "h",rel_widths = c(2.5,1)
+          )
+
+```
+
+
+\pagebreak
+
+
+### `r fig_nums("case-timing")`
+
+Each point represents a blood sample collection occurred for a confirmed case (A). The daily number of samples is shown on the y-axis. Red dashed lines are placed at the threshold values for infections windows (45, 120, 200, and 300 days) (B).
+
+```{r case-timing,  fig.height = 10, eval=TRUE}
+
+
+
+timing_df <- case_days    %>% left_join(demo_id) %>%
+                filter(status=="Case") 
+
+
+# p_dot_plot <- timing_df %>%
+#                 ggplot(aes(x=day_actual,y=id))+
+#                 geom_line()+
+#                 geom_point(aes(col=factor(day)))+
+#                 facet_grid(age_group~.,space = "free",scales = "free")+
+#                 scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+#                 geom_vline(xintercept = c(45, 120,200,300),
+#                            col=rep(c("darkred","red","darkorange","orange"),4),
+#                            lty=2)+
+#                 theme_cowplot()+
+#                 scale_color_manual(values=c("skyblue","darkred","darkred","red","darkorange",
+#                                            "orange","skyblue",
+#                                            "skyblue","skyblue","skyblue","skyblue"
+#                                            ))+
+#                 ylab("Participant ID")+
+#                 theme(legend.position = "none")
+# 
+# p_sample_curve <- timing_df %>%
+#                 group_by(status, day_actual, day) %>% count() %>%
+#                 ggplot(aes(x=day_actual,y=n))+
+#                 geom_col(aes(fill=factor(day)))+
+#                 scale_y_continuous("Samples", breaks=seq(0,25,5))+
+#                 scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+#                 geom_vline(xintercept = c(45, 120,200,300),
+#                            col=c("darkred","red","darkorange","orange"),
+#                            lty=2)+
+#                 theme_cowplot() +
+#                 scale_fill_manual(values=c("skyblue","darkred","darkred","red","darkorange",
+#                                            "orange","skyblue",
+#                                            "skyblue","skyblue","skyblue","skyblue"
+#                                            ))+
+#                 theme(legend.position = "none")
+
+
+
+
+
+p_sample_curve <- timing_df %>%
+                group_by(status, day_actual, day) %>% count() %>%
+                ggplot(aes(x=day_actual,y=n))+
+                geom_col()+
+                scale_y_continuous("Samples", breaks=seq(0,25,5))+
+                scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+                geom_vline(xintercept = c(45, 120,200,300),col="red",
+                           lty=2)+
+                theme_cowplot()+
+                theme(legend.position = "none")
+
+
+p_dot_plot <- timing_df %>%
+                ggplot(aes(x=day_actual,
+                           y=str_pad(as.numeric(as.factor(id)),
+                           side="left",pad="0",width = 3)
+                           ))+
+                geom_point()+
+                geom_line()+
+                facet_grid(age_group~.,space = "free",scales = "free")+
+                scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+                geom_vline(xintercept = c(45, 120,200,300),col="red",
+                           lty=2)+
+                theme_cowplot()+
+                ylab("Participant ID")
+
+plot_grid(p_dot_plot,p_sample_curve,ncol = 1,align="v",rel_heights = c(3,1),axis="lr",
+          labels=c("A","B")
+          )
+
+
+
+# p1 <- timing_df %>%
+#                 group_by(status, day_actual, day) %>% count() %>%
+#                 ggplot(aes(x=day_actual,y=n))+
+#                 geom_col()+
+#                 # geom_col(aes(fill=day_actual>5 & day_actual<=120))+
+#                 scale_y_continuous("Samples", breaks=seq(0,25,5))+
+#                 scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+#                 # geom_vline(xintercept = c(5,120),col="red",
+#                 #            lty=3)+
+#                 # scale_fill_manual(values=c("black","red"))+
+#                 theme_cowplot()+
+#                 theme(legend.position = "none")+
+#                 ggtitle("120-day Infection window")
+# 
+# 
+# p2 <- timing_df %>%
+#                 group_by(status, day_actual, day) %>% count() %>%
+#                 ggplot(aes(x=day_actual,y=n))+
+#                 geom_col(aes(fill=day_actual>5 & day_actual<=300))+
+#                 scale_y_continuous("Samples", breaks=seq(0,25,5))+
+#                 scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+#                 geom_vline(xintercept = c(5,300),col="red",
+#                            lty=3)+
+#                 scale_fill_manual(values=c("black","red"))+
+#                 theme_cowplot()+
+#                 theme(legend.position = "none")+
+#                 ggtitle("300-day Infection window")
+
+
+
+# plot_grid(p1,p2,nrow=1)
+
+```
+
+\pagebreak
+
+
+
+### `r fig_nums("weighting")`
+
+The yellow columns represent the proportion of samples that fall within the time interval on the x-axis (A). The purple columns indicate the expected proportion of samples that would fall within the time interval if infection times were exponentially distributed with a 10% annual incidence. Both of these proportions condition on the sample already being either inside or outside the infection window. Each point shows the weight used for each infection window (B). 
+
+```{r weighting, eval=TRUE, fig.height=10}
+
+
+annual_incidence=0.1 #expected annual incidence (assuming constant hazard)
+start_window = 5 #choose when the window begins
+end_window = 200 #choose when the window ends
+decayed=540 
+
+new_day_df <- wide_analysis %>% 
+        mutate(new_day=ifelse(day_actual>=decayed | status=="Contact",
+                              decayed,day)) %>%
+        mutate(window = ifelse(day_actual>=start_window & 
+                                   day_actual <=end_window &
+                                   status=="Case", 1,0 )) %>%
+        mutate(window_type= ifelse(window==1,"During","After")) %>%
+        mutate(window_type= ifelse(window==0 & new_day < start_window,
+                                   "Before",window_type))
+    
+#calculate daily hazard
+lambda <- annual_incidence/365.25
+  
+#calculate the weights for each category
+weight_df <- new_day_df %>%
+        group_by(window,window_type,new_day) %>%
+        count() %>% 
+        ungroup() %>%
+        #weight to adjust for class imbalance
+        mutate(class_weight= (window*(sum(n*window)) +
+                                  (1-window)*(sum(n*(1-window))))/sum(n),
+               class_weight=0.5/class_weight
+        ) %>%
+        
+        #make bounds for each category
+        arrange(window_type,new_day) %>%
+        group_by(window_type) %>%
+        #find midpoints between categories
+        mutate(lb=(new_day-lag(new_day,1))/2+lag(new_day,1)) %>%
+        mutate(ub=lead(lb,1)) %>%
+        
+        #set bounds for data bordering thresholds
+        mutate(lb=ifelse(window_type== "Before" & 
+                             new_day==min(new_day),
+                         0,lb)) %>%
+        mutate(ub=ifelse(window_type== "Before" & 
+                             new_day==max(new_day),
+                         start_window,ub)) %>%
+        mutate(lb=ifelse(window_type== "During" & 
+                             new_day==min(new_day),
+                         start_window,lb)) %>%
+        mutate(ub=ifelse(window_type== "During" & 
+                             new_day==max(new_day),
+                         end_window,ub)) %>%
+        mutate(lb=ifelse(window_type== "After" & 
+                             new_day==min(new_day),
+                         end_window,lb)) %>%
+        mutate(ub=ifelse(window_type== "After" & 
+                             new_day==max(new_day),
+                         Inf,ub))%>%
+        mutate(day_cat= paste0("[",lb,",",ub,")")) %>%
+
+        
+        
+        #calculate the probability
+        group_by(window) %>%
+        mutate(obs_prob=n/sum(n)) %>%
+        mutate(exp_prob=pexp(ub,rate=lambda)-pexp(lb,rate=lambda)) %>%
+        
+        #weight to adjust for timing within class
+        mutate(obs_rel=(obs_prob/sum(obs_prob))) %>%
+        mutate(exp_rel=(exp_prob/sum(exp_prob))) 
+
+#combine baseline with decayed individuals
+weight_df<- bind_rows(
+                weight_df %>% filter(!(new_day==max(new_day) | window_type=="Before")),
+                weight_df %>% filter(new_day==max(new_day) | window_type=="Before") %>%
+                        mutate(obs_rel=sum(obs_rel),
+                               exp_rel=sum(exp_rel),
+                        )) %>%   
+        filter(day_cat!="[0,5)") %>%
+        mutate(day_cat= recode(day_cat,"[450,Inf)"="[450,Inf) or [0,5)")) %>%
+        mutate(time_weight= exp_rel/obs_rel) %>%
+        ungroup() %>%
+        #make final standardized weight
+        mutate(final_weight=class_weight*time_weight) %>%
+        
+        #make it pretty
+        mutate(new_day=as.factor(new_day)) %>%
+        arrange(new_day,-window) %>%
+        select(day_cat,window,
+               Observed=obs_rel,
+               Expected=exp_rel) %>%
+        gather(Probability,value,-c(day_cat,window)) %>%
+        
+        mutate(day_cat=factor(day_cat,levels=unique(day_cat)),
+               window=factor(window,
+                      levels=c("1","0"),
+                      labels=c("Inside 200-day Window",
+                               "Outside 200-day Window")),
+               Probability= factor(Probability,
+                                   levels=c("Observed","Expected"))
+               )
+
+weight_p1<- weight_df %>% 
+        ggplot(aes(x=day_cat))+
+        geom_col(aes(y=value,fill=Probability),position=position_dodge2())+
+        facet_grid(.~window,scales = "free_x",space = "free_x")+
+        theme_bw()+
+        scale_y_continuous("Within-class\nProbability",limits=c(0,1))+
+        scale_fill_viridis_d(direction = -1)+
+        xlab("Day Category")+
+        theme(legend.position = "bottom")
+
+
+weight_p2 <- bind_rows(
+    wide_analysis %>% getWeight(end_window=45) %>%
+            addInfectionWindow(end_window = 45) %>%
+                mutate(`Infection Window` = "45-day") %>%
+                mutate(class=inf_45),
+    wide_analysis %>% getWeight(end_window=120) %>%
+                addInfectionWindow(end_window = 120) %>%
+                mutate(`Infection Window` = "120-day")%>%
+                mutate(class=inf_120),
+     wide_analysis %>% getWeight(end_window=200) %>%
+            addInfectionWindow(end_window = 200) %>%
+                mutate(`Infection Window` = "200-day")%>%
+                mutate(class=inf_200),
+    wide_analysis %>% getWeight(end_window=300) %>%
+            addInfectionWindow(end_window = 300) %>%
+                mutate(`Infection Window` = "300-day")%>%
+                mutate(class=inf_300),
+    wide_analysis %>% getWeight(end_window=600) %>%
+            addInfectionWindow(end_window = 600) %>%
+                mutate(`Infection Window` = "600-day")%>%
+                mutate(class=inf_600)
+) %>% mutate(`Infection Window`=factor(`Infection Window`,levels=c("45-day","120-day",
+                                                                   "200-day","300-day",
+                                                                   "600-day"
+                                                                   ))) %>%
+    distinct(day,`Infection Window`,weight,status,class)%>%
+    mutate(class=factor(class,
+                      levels=c("1","0"),
+                      labels=c("Inside Window",
+                               "Outside Window"))) %>%
+    rename(Status=status) %>%
+    ggplot(aes(x=factor(day),y=weight))+
+        geom_hline(yintercept=1,lty=2)+
+        geom_point(aes(col=Status,shape=Status))+
+        theme_bw()+
+        scale_y_continuous("Weight",trans="log10")+
+        scale_x_discrete("Sample collection day")+
+        scale_color_brewer(palette="Dark2")+
+        facet_grid(`Infection Window`~class,scales = "free_x", space = "free_x")+
+        theme(legend.position = "bottom")
+     
+
+plot_grid(weight_p1,weight_p2,nrow=2,
+          labels=c("A","B"),
+          rel_heights = c(1,2.5)
+          )   
+        
+
+
+```
+
+
+\pagebreak
+
+### `r tab_nums("tableone")`
+
+All cases were hospitalized and solely had O1 Vibrio Cholerae isolated. Inaba O1 was isolated from non-Ogawa cases 
+
+
+```{r tableone, eval=TRUE}
+
+characteristics <- casecon_analysis %>% distinct(id,age_group,sex,blood,culture,status,dehydration, `Case Watery Diarrhea Day 7`, `Contact Watery Diarrhea Day 2`,hospital_hrs)
+
+# get categorical variables together
+demotable_1 <- characteristics %>% group_by(status) %>%
+                summarize(n=n(),
+                          `< 5 years`=sum(age_group=="<5 years"),
+                          `5-9 years`=sum(age_group=="5-9 years"),
+                          `10-17 years`=sum(age_group=="10-17 years"),
+                          `18+ years`=sum(age_group=="18+ years"),
+                          
+                          Female = sum(sex=="female"),
+                          
+                          `O Blood Group` = sum(blood=="O"),
+                          
+                          `V. cholerae O1 Ogawa isolated` = sum(culture=="O1-Ogawa"),
+                          `Watery Diarrhea at day 7` = sum(`Case Watery Diarrhea Day 7`=="Yes")
+                          ) %>%
+        gather(variable,value,-c(status,n)) %>% 
+        filter(!is.na(value)) %>%
+        mutate(percent=round(value/n*100)) %>%
+        mutate(final_value= paste0(value," (",percent,")")) %>%
+        mutate(row_name=paste(variable,"(%)")) %>%
+        select(status,n,row_name,final_value)
+
+#get continuous variables together
+demotable_2 <- characteristics %>%
+        filter(status=="Case") %>%
+        group_by(status)%>%
+        summarize( n= n(),
+                        median = round(median(hospital_hrs)),
+                        lower= round(quantile(hospital_hrs,0.25,na.rm = TRUE)),
+                        upper= round(quantile(hospital_hrs,0.75,na.rm = TRUE))
+
+        ) %>% 
+        mutate(row_name="Median Hours of Hospitalization [IQR]") %>%
+        mutate(final_value= paste0(median," [",lower,", ",upper,"]")) %>%
+        select(status,n,row_name,final_value)
+
+#bring together and add additional rows
+demotable_3 <- bind_rows(
+        demotable_1,demotable_2
+) %>% mutate(status=ifelse(status=="Case","Cholera cases","Household contacts")) %>%
+        mutate(column_header=paste0(status,"\n(n=",n,")")) %>%
+        select(column_header,row_name,final_value) %>%
+        spread(column_header,final_value) %>%
+        mutate(`Household contacts\n(n=3)`=ifelse(is.na(`Household contacts\n(n=3)`),
+                                                  "-",`Household contacts\n(n=3)`)) %>%
+        bind_rows(data.frame(row_name="Age Group")) %>%
+        mutate(row_name=factor(row_name,
+                               levels=c("Age Group",
+                                       "< 5 years (%)","5-9 years (%)",
+                                       "10-17 years (%)", "18+ years (%)", 
+                                       "Female (%)",
+                                        "O Blood Type (%)", "V. cholerae O1 Ogawa isolated (%)",
+                                       "Median Hours of Hospitalization [IQR]","Watery Diarrhea at day 7 (%)" 
+                               ))) %>%
+        arrange(row_name) %>%
+        rename(`Characteristics`=row_name)
+
+#turn into flextable object
+demotable_ft <- demotable_3[1:7,] %>% flextable::flextable() %>%
+                flextable::autofit() %>%
+                flextable::padding(i=2:5, j=1, padding.left=20) %>%
+                flextable::align(align = "center",j=2:3,part="all")
+
+
+
+demotable_ft
+
+```
+
+\pagebreak
+
+
+
+
+### `r fig_nums("supp-spaghetti-RAU")`
+
+The y-axis indicates the log (base 10) of the inverse RAU and the x-axis is the number of days post-infection (square-root transformed). Each colored line indicates individual trajectories over time. The Black solid line is a loess smooth function. 
+
+```{r supp-spaghetti-RAU, eval=TRUE}
+
+
+ analysisData$RAU_data$long_data %>%
+                filter(test_type=="Luminex")%>%
+                filter(status=="Case") %>%
+                left_join(antigen_df) %>%
+                filter(!O1_antigen) %>%
+                mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM"))) %>%
+                ggplot(aes(x=day_actual,y=value))+
+                        geom_line(aes(group=id,col=antigen_pretty),alpha=0.3)+
+                        geom_smooth(se=FALSE,col="black",lty=1)+
+                        facet_grid(isotype~antigen_pretty,scales = "free_y")+
+                        ylab("log10(1/RAU)")+
+                        
+                        scale_x_continuous(trans="sqrt",breaks=c(2,30,365,900))+
+                        theme_bw()+
+                        theme(panel.grid.minor = element_blank(),
+                             panel.grid.major.x = element_blank(),
+                             legend.position = "none"
+                              )+
+                        xlab("Days Post Infection")
+
+
+
+```
+
+\pagebreak
+
+
+### `r fig_nums("correlellogram")`
+
+Spearman correlation coefficients were calculated using 49 samples all of which were collected approximately 30 days post-enrollment for both cases and contacts.
+
+```{r correlellogram, fig.height=10, eval=TRUE}
+
+
+analysisData$new_long_data %>%
+        filter(unit=="log10(1/RAU)") %>%
+        left_join(antigen_df) %>%
+        filter(day==30) %>%
+        mutate(antibody=paste(isotype,antigen_pretty)) %>%
+        select(sample,value,antibody) %>%
+        spread(antibody,value) %>%
+        select(-sample) %>% cor(method="spearman") %>%
+        corrplot(
+                 type = "upper",method="circle"
+        )
+
+```
+
+\pagebreak
+
+
+
+### `r fig_nums("spaghetti-agegroup")`
+
+```{r spaghetti-agegroup, eval=TRUE}
+
+#these covariate graphs should be included in the supplement
+
+analysisData$RAU_data$long_data %>% filter(status =="Case") %>%
+                filter(test_type=="Luminex") %>%
+                filter(antigen  %in% O1_antigens) %>%
+                left_join(antigen_df) %>%
+                mutate(`Age Group`=ifelse(age<10,"<10 years","10+ years")) %>%
+                mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM"))) %>%
+                ggplot(aes(x=day_actual,y=value,col=`Age Group`))+
+                        geom_line(aes(group=id),alpha=0.3)+
+                        geom_smooth(se=FALSE,lty=1)+
+                        facet_grid(isotype~antigen_pretty,scales = "free_y")+
+                        ylab("log10(1/RAU)")+
+                        
+                        scale_x_continuous(trans="sqrt",breaks=c(2,30,365,900))+
+                        theme_bw()+
+                        theme(panel.grid.minor = element_blank(),
+                             panel.grid.major.x = element_blank(),
+                             legend.position = "bottom"
+                              )+
+                        xlab("Days Post Infection")
+
+
+```
+
+\pagebreak
+
+### `r fig_nums("spaghetti-serotype")`
+
+```{r spaghetti-serotype, eval=TRUE}
+
+
+analysisData$RAU_data$long_data %>% filter(status =="Case") %>%
+                filter(test_type=="Luminex") %>%
+                filter(antigen  %in% O1_antigens) %>%
+                left_join(antigen_df) %>%
+                mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM"))) %>%
+                ggplot(aes(x=day_actual,y=value,col=culture))+
+                        geom_line(aes(group=id),alpha=0.3)+
+                        geom_smooth(se=FALSE,lty=1)+
+                        facet_grid(isotype~antigen_pretty,scales = "free_y")+
+                        ylab("log10(1/RAU)")+
+                        
+                        scale_x_continuous(trans="sqrt",breaks=c(2,30,365,900))+
+                        theme_bw()+
+                        theme(panel.grid.minor = element_blank(),
+                             panel.grid.major.x = element_blank(),
+                             legend.position = "bottom"
+                              )+
+                        xlab("Days Post Infection")
+
+
+
+
+
+```
+
+
+\pagebreak
+
+
+### `r fig_nums("marker-importance")`
+
+Permutation importance is shown along the x-axis for 21 predictors of random forest models containing multiplex bead assay (MBA) markers (except for those binding to CT-H, LT-H, and LT-B), age, sex, and blood-type.
+
+
+```{r marker-importance, fig.height = 10, eval=TRUE}
+
+
+color_variable <- analysisData$new_long_data %>% filter(unit=="log10(1/RAU)") %>%
+                filter(antigen %in% c("CtxB","OgawaOSPBSA","InabaOSPBSA")) %>%
+                # filter(!full_test %in% c("Luminex_IgM_CtxB")) %>%
+                distinct(full_test) %>% pull(full_test) %>%
+                c("age")
+
+
+importance_df <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/3_importance_df.rds") %>%
+        filter(predictors=="RAU Limited")
+
+importance_plot_df <- importance_df %>%
+                filter(end_window %in% c(45,120,200,300)) %>%
+                mutate(pretty_marker=str_remove(marker,"RAU_")) %>%
+                mutate(pretty_marker=str_replace(pretty_marker,"_"," ")) %>%
+                mutate(pretty_marker=str_replace(pretty_marker,"OSPBSA"," OSP")) %>%
+                mutate(pretty_marker=str_replace(pretty_marker,"CtxB","CT-B")) %>%
+                mutate(pretty_marker=ifelse(pretty_marker=="age","Age",pretty_marker)) %>%
+        
+                mutate(other_marker=ifelse(marker %in% color_variable,
+                                                     pretty_marker,"Other")) %>%
+                group_by(end_window) %>%
+                  arrange(end_window,-importance) %>%
+                  mutate(rank=1:n()) 
+
+
+imp45<- importance_plot_df %>% filter(end_window==45) %>%
+                ggplot(aes(y=reorder(pretty_marker,rank),x=importance,fill=other_marker))+
+                     geom_col()+
+                        facet_wrap(.~end_window)+
+                        scale_fill_manual("Predictor",values=c("black",
+                                                    pals::brewer.reds(5)[3:5],
+                                                    pals::brewer.greens(5)[3:5],
+                                                    pals::brewer.blues(5)[3:5]
+                                                    ,"lightgrey"))+
+                        theme_bw()+
+                        theme(legend.position = "bottom",
+                              axis.title.y= element_blank()
+                              )+
+                        xlab("Permutation\nImportance")
+
+imp120<- importance_plot_df %>% filter(end_window==120) %>%
+                ggplot(aes(y=reorder(pretty_marker,rank),x=importance,fill=other_marker))+
+                     geom_col()+
+                        facet_wrap(.~end_window)+
+                        scale_fill_manual("Predictor",values=c("black",
+                                                    pals::brewer.reds(5)[3:5],
+                                                    pals::brewer.greens(5)[3:5],
+                                                    pals::brewer.blues(5)[3:5]
+                                                    ,"lightgrey"))+
+                        theme_bw()+
+                        theme(legend.position = "bottom",
+                              axis.title.y= element_blank())+
+                        xlab("Permutation\nImportance")
+
+imp200<- importance_plot_df %>% filter(end_window==200) %>%
+                ggplot(aes(y=reorder(pretty_marker,rank),x=importance,fill=other_marker))+
+                     geom_col()+
+                        facet_wrap(.~end_window)+
+                        scale_fill_manual("Predictor",values=c("black",
+                                                    pals::brewer.reds(5)[3:5],
+                                                    pals::brewer.greens(5)[3:5],
+                                                    pals::brewer.blues(5)[3:5]
+                                                    ,"lightgrey"))+
+                        theme_bw()+
+                        theme(legend.position = "bottom",
+                              axis.title.y= element_blank())+
+                        xlab("Permutation\nImportance")
+
+imp300<- importance_plot_df %>% filter(end_window==300) %>%
+                ggplot(aes(y=reorder(pretty_marker,rank),x=importance,fill=other_marker))+
+                     geom_col()+
+                        facet_wrap(.~end_window)+
+                        scale_fill_manual("Predictor",values=c("black",
+                                                    pals::brewer.reds(5)[3:5],
+                                                    pals::brewer.greens(5)[3:5],
+                                                    pals::brewer.blues(5)[3:5]
+                                                    ,"lightgrey"))+
+                        theme_bw()+
+                        theme(legend.position = "bottom",
+                              axis.title.y= element_blank())+
+                        xlab("Permutation\nImportance")
+
+
+
+
+
+
+
+
+#bring in data.frame
+
+all_cv_df <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/1_scan_cvPred_df.rds")%>%
+        filter(predictors=="RAU Limited")
+
+# for each window and weighting, calculate the sensitivities and specificities
+limited <- filter(all_cv_df,end_window==45,weighted==TRUE)
+
+library(pROC)
+roc_df <- data.frame()
+
+
+for (W in c(FALSE, TRUE)){
+        for (d in c(45,120,200,300)){
+                
+                tmp_df <- filter(all_cv_df,end_window==d,weighted==W)
+                tmp_roc <- roc(tmp_df,response=outcome,predictor=prediction)
+                roc_df <- bind_rows(roc_df,
+                                    data.frame(
+                                            sens=tmp_roc$sensitivities,
+                                            spec=tmp_roc$specificities,
+                                            weighted=W,
+                                            end_window=d
+                                            
+                                    ))
+                
+                
+        }
+}
+
+
+
+
+plot_grid(
+                roc_df %>% arrange(spec,sens) %>% ggplot(aes(x=1-spec,y=sens))+
+                                geom_line(aes(col=factor(weighted),
+                                               ))+
+                        facet_grid(.~end_window)+
+                        theme_bw()+
+                        theme(legend.position = "bottom")+
+                        xlab("1-Specificity")+
+                        ylab("Sensitivity")+
+                        scale_color_viridis_d("Weighted")
+                        ,
+                
+plot_grid(imp45+theme(legend.position = "none",
+                      axis.text.x = element_text(angle=45,hjust=1)
+                      ),
+          imp120+theme(legend.position = "none",
+                      axis.text.x = element_text(angle=45,hjust=1)),
+          imp200+theme(legend.position = "none",
+                      axis.text.x = element_text(angle=45,hjust=1)),
+          imp300+theme(legend.position = "none",
+                      axis.text.x = element_text(angle=45,hjust=1)),
+          nrow=1), #%>%
+        # plot_grid(ggpubr::get_legend(imp45),ncol=1,rel_heights = c(5,1)), 
+        nrow=2,rel_heights = c(1.5,2)
+        )
+
+
+
+
+```
+
+
+\pagebreak
+

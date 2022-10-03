@@ -1,0 +1,3318 @@
+---
+title: Supplementary materials for 'Identifying recent cholera infections using a
+  multiplex bead assay'
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  word_document:
+    toc: yes
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE,fig.height = 7,
+                      fig.width = 10, eval=FALSE)
+```
+
+
+
+
+```{r functions,  eval=TRUE}
+# library(tidyverse)
+# library(readxl)
+# library(rdrop2)
+# 
+# library(randomForest)
+# library(party)
+# library(permimp)
+# library(cvAUC)
+# 
+# library(cowplot)
+# library(captioner)
+# library(corrplot)
+# 
+# library(rstan)
+# options(mc.cores = parallel::detectCores())
+# rstan_options(auto_write = TRUE)
+# library(tidybayes)
+# library(here)
+# 
+# token <- read_rds('data/generated_data/dropbox_token/token.rds')
+# 
+# source("source/final_code/shared/utils.R")
+
+source("source/final_code/luminex_recommendation/R/packages.R")
+source("source/final_code/shared/utils.R")
+
+
+```
+
+
+```{r data,  eval=TRUE}
+
+source("source/final_code/luminex_recommendation/R/load-data.R")
+
+case_days <- getTimingData()
+demo_id <-getWideData() %>% mutate(blood=factor(blood))
+
+
+#list of antigens associated with O1 cholera infection
+O1_antigens <- c("CTHT","CtxB","InabaOSPBSA","OgawaOSPBSA","Sialidase","TcpA","VCC", #Luminex
+                 "LPS") #ELISA
+
+#data frame to join to make antigen names look nice for plots
+antigen_df <- distinct(casecon_analysis,antigen) %>%
+              filter(!is.na(antigen)) %>%
+              mutate(O1_antigen= antigen %in% O1_antigens) %>%
+              mutate(antigen_pretty = recode(antigen,
+                                             "InabaOSPBSA" = "Inaba OSP",
+                                             "OgawaOSPBSA" = "Ogawa OSP",
+                                             "O139BSA" = "O139 OSP",
+                                             "CTHT" = "CT-H",
+                                             "CtxB" = "CT-B",
+                                             "LTh" = "LT-H",
+                                             "LTB"  = "LT-B",
+                                             "LPS" = "Ogawa LPS"
+                                             ))
+
+
+```
+
+\pagebreak
+
+## Supplementary Methods
+
+```{r captions1,  eval=TRUE}
+vars <- list()
+
+eqn_nums <- captioner(prefix = "Method S", auto_space = FALSE)
+
+
+eqn_nums(name = "sample-selection", caption = "Overview of sample selection", display = FALSE)
+eqn_nums(name = "rau-calc", caption = "Procedure for calculating the relative antibody unit", display = FALSE)
+eqn_nums(name = "univariate-decay", caption = "Univariate decay models", display = FALSE)
+eqn_nums(name = "sample-weighting", caption = "Sample weighting", display = FALSE)
+
+```
+
+
+### `r eqn_nums("sample-selection")`
+
+#### Prediction-based sampling
+
+We aimed to select a sample of the original cohort data from Bangladesh (the SMIC and PIC cohorts) to test out for this analysis of a multiplex bead assay. Rather than attempt to handpick individuals using descriptive guidelines, we decided to choose the sample that best predicts the rest of the cohort. The sample with the best prediction accuracy should have attributes that reflect that of the whole cohort, be they demographic (age, sex, blood type) or test-based (bactericidal, ELISAs).
+
+The process for making these predictions was as follows:
+
+1. Choose a random sample of individuals to create the "training set", for a given scenario (explained below)
+2. Fit a random forest model to those individuals to classify individuals as recently infected or not 
+3. Create a "balanced test set" (explained below)
+4. Use the random forest to predict the outcomes in the balanced test set
+5. Evaluate the predictions with cross-validated area under the ROC curve (cvAUC)
+
+We looked at three scenarios for selecting the training set, all of which included 20 individuals who are under 10 (‘children’) and 20 individuals who are 10 and older (‘adults’). The scenarios only differ by the number of household contacts used; it is important to note that all household contacts in PIC/SMIC were adults. In the first scenario, we randomly draw 10 adults who were index cases and 10 adults who were household contacts. In the second scenario, we draw only index cases and no household contacts. In the third scenario, we draw from the pool of index and household contacts indiscriminately; letting the predictive ability of the models choose the number of household contacts.
+
+After selecting the training set and fitting the random forest model, we predicted a "balanced test set".
+The test set consisted of the observations that were not chosen in the training set.
+We took a large random sample with replacement of the test set, but balanced such that (a) there were as many seropositive (as predicted by the model) observations as seronegative observations and (b) the seropositive observations were evenly distributed over their time since infection.
+This is important because the original cohort was skewed towards having more seropositive observations with lower times since infection.
+Having an equal number of seropositive and seronegative cases ensured that we did not reward models for erring on the side of making positive or negative predictions.
+By sampling across time since infection, we hoped to improve the model performance at times further from infection; the serosurvey model performed quite well at short time intervals but poorly at longer horizons.
+
+After resampling 10,000 times, we chose a set that had the highest cvAUC for the third scenario. This included 38 cases and 2 household contacts.
+
+#### Sample inventory
+
+After investigation of freezer stocks, samples from 39 of 40 individuals were found. Samples from two additional cases were added to the set, giving a selection of 245 samples from 41 individuals (39 cases and 2 household contacts).
+
+#### Additional sample selection
+
+After initial testing was completed, we decided to supplement the dataset with samples from 10 individuals (9 cases and 1 contact) in order to balance out the ages of individuals. In particular, we were concerned about the lack of individuals with samples between the ages of 10 and 18 in the original sample. To limit the influence of boosted antibody responses from reinfection/exposure during the follow-up period, we removed any data points that were part of or after a greater than a 2 fold-rise between measurements in vibriocidal Ogawa titers >90 days post initial infection.  Our final sample included 305 samples from 51 individuals (48 cases and 3 contacts).
+
+```{r more-samples, eval=FALSE}
+
+#original request
+request <- c("P103","P134","P137","P145","P148","P149","P25","P27","P29","P33","P35","P4","P4.02","P82.02","P84","P88","P95","P98","S1","S102","S11","S111","S112","S128","S131","S136","S138","S140","S147","S16","S29","S41","S54","S56","S67","S75","S83","S86","S93","S94")
+
+demo_id %>% filter(id %in% request) %>%
+    group_by(age_group) %>%
+    count()
+
+#those tested after checking inventory
+original <- filter(analysisData$compare_data, !str_detect(batch,"Vaccine"))  %>%
+                distinct(id,sample,status)
+
+#those newly selected (were run on vaccine plates)
+new_select <- filter(analysisData$compare_data, str_detect(batch,"Vaccine"))  %>%
+        distinct(id,sample,status)
+
+
+analysisData$compare_data %>%
+        mutate(original= ifelse(!str_detect(batch,"Vaccine"),0,1)) %>%
+        mutate(original=factor(original,labels=c("Original samples","Added samples")))%>%
+        distinct(original,id,status,age,sex)  %>%
+        ggplot(aes(x=age,fill=original))+
+        geom_histogram()+
+        theme_bw()+
+        facet_wrap(.~status)+
+        xlab("Age (years)")+
+        scale_y_continuous("Individuals",breaks=c(0,3,6,9))
+```
+
+\pagebreak
+
+### `r eqn_nums("rau-calc")`
+
+On each 384-well plate, a dilution series of positive control wells was included to adjust for between-plate variability. 
+We used this to calculate the relative antibody unit (RAU) for all samples on the plate.
+The RAU is the expected dilution of the positive control sample needed to get the same MFI as the sample.
+
+####  Dilution series
+
+Serum samples from 5 patients with culture-confirmed *V. cholerae* O1 collected 7 days after symptoms were combined to create a serum pool. Of the total 19 plates run, 7 had four dilution points (1:100, 1:400, 1:1,600, 1:6,400). After deciding to expand the range of dilutions, the next 12 plates had eight dilution points (1:10, 1:40, 1:160, 1:640, 1:2,560, 1:10,240, 1:40,960, 1:163,840). Additionally, blank control wells (i.e. not including any sera) were run on every plate. All samples were run in triplicate and MFI values were averaged.
+
+
+```{r dilution, eval=FALSE}
+
+tidy_luminex %>% 
+  filter(!is.na(dilution))%>%
+  filter(subclass=="total") %>%
+  distinct(batch,dilution)  %>%
+  group_by(dilution) %>%
+  count() %>% arrange(n)
+
+
+
+tidy_luminex %>% 
+  filter(sample=="Blank")%>%
+  filter(subclass=="total") %>%
+  group_by(isotype) %>%
+  summarize(mean(log(avgMFI)),
+            sd(log(avgMFI)),
+            n()
+            )
+  
+```
+
+#### Model parameterization and fit
+
+For each antigen, we fit four-parameter log-logistic models to each plate's dilution series. As previously described (1), the relationship between dilution and MFI is defined as follows:
+
+\[
+\begin{aligned}
+      Y_i &=\text{log(median fluorescence intensity) for sample } i \\
+      x_i &=\text{dilution for sample } i\\
+      Y_i &= c + \frac{d-c}{1+exp(b \times (log(x_i)-log(e)))} \\
+\end{aligned}
+\]
+
+We chose this parameterization given its frequent use for modeling dose-response relationships and that we only had four dilution points for many of our plates. For plates with seven dilution points, we used the drc package in R (1). For plates with four dilution points, we decided to implement a Bayesian framework so that we could fit the model with prior distributions informed by the seven dilution series wells:
+
+\[
+\begin{aligned}
+      b &\sim  \text {Normal}(\mu_b, 1)\\
+      c &\sim  \text {Normal}(\mu_c, 0.5)\\
+      d &\sim  \text {Normal}(\mu_d, 20)\\
+      e &\sim  \text {Normal}(\mu_e, 100)\\
+\end{aligned}
+\]
+
+Specifically, $\mu_c$, the mean of the prior distribution for $c$ (the lower bound of the logistic curve), was set equal to the log(MFI) for the blank sample for each plate. 
+The variance parameter of the prior distribution for $c$ was set at 0.5 to be slightly larger than observed among blank samples.
+The mean values for the other priors ($\mu_b$,$\mu_d$, and$\mu_e$) were set equal to the average values estimated from the seven dilution models.
+Variance values for the prior distributions of $b$,$d$,and $e$ were selected to be sufficiently large to be relatively uninformative.
+
+#### Relative antibody unit calculation
+
+For each antigen on each plate, the mean value for each parameter was used to calculate the relative antibody unit (RAU).
+To avoid extrapolation, all samples with a calculated RAU above 1:100 or below 1:100,000 were set equal to those values.
+Any samples with MFI values falling outside of the logistic curve were also set to the threshold value.
+
+\pagebreak
+
+### `r eqn_nums("univariate-decay")`
+
+
+We fit univariate decay models to describe the antibody dynamics of individuals for each biomarker. All models had two components: 1) a measurement model
+and 2) a decay model. This data set contains $n$ individuals (indexed by $i$), and $m$ total measurements (indexed by $j$). Each marker is modeled separately.
+
+#### Measurement Models
+
+We had several different types of measurements of biomarkers (multiplex bead assay (MBDA) RAU, Vibriocidal titers, and ELISA concentrations) to fit models to.
+We assumed that the observed data were normally distributed ($f_{N}$ denotes the normal density) around the true (unobserved) value.
+Each different model accounted for censored observations in various ways based on how the data was generated.
+
+
+- $Y_{ij}$ = the true value at the time of the $j$th measurement for individual i.
+- $Y^*_{ij}$ = the observed value at the time of the $j$th measurement for individual i.
+- $\sigma$ = measurement error variance
+
+
+##### Multiplex bead assay relative antibody unit measurement model
+
+For our analysis, the RAU was inverted and log10 transformed.
+Values can only take a value above -5 and below -2. 
+Any value set at -5 and -2 are censored values and are treated as so:
+
+\[
+Pr(Y^*_{ij}|Y_{ij},\sigma) =        
+        \begin{cases}
+          \int_{-\infty}^{-5} f_{N}(Y_{ij}|\sigma) &\text{if } Y^*_{ij}=-5\\
+          f_{N}(Y_{ij}|\sigma) &\text{if } -5<Y^*_{ij}<-2\\
+          \int_{-2}^{\infty} f_{N}(Y_{ij}|\sigma) &\text{if } Y^*_{ij}=-2\\
+        \end{cases}
+\]
+
+
+##### Vibriocidal assay measurement model
+
+Vibriocidal titers were divided by 5 and log2 transformed. 
+The vibriocidal  assay outputs a measurement of the highest dilution where the vibriocidal reaction still occurs.
+Therefore, the true dilution is between the reported dilution and the next dilution (i.e. interval censored).
+$V_{max}$, the largest measureable log titer, was 11.  $V_{min}$, the smallest measureable log titer was 0.
+
+\[
+Pr(Y^*_{ij}|Y_{ij},\sigma) =        
+        \begin{cases}
+          \int_{-\infty}^{V_{min}} f_{N}(Y_{ij}|\sigma) &\text{if }  Y^*_{ij}=V_{min}\\
+          \int_{Y_{ij}}^{Y_{ij}+1} f_{N}(Y_{ij}|\sigma) &\text{if } V_{min}<Y^*_{ij}<V_{max}\\
+          \int_{V_{max}}^{\infty} f_{N}(Y_{ij}|\sigma) &\text{if }   Y^*_{ij}=V_{max}\\
+        \end{cases}
+\]
+
+#####  ELISA measurement model
+
+ELISA measurements were all log10 transformed.
+No values were at the limit of detection so censoring was not accounted for.
+
+\[
+\begin{aligned}
+       Pr(Y^*_{ij}|Y_{ij},\sigma) = f_{N}(Y_{ij},\sigma) \\
+\end{aligned}
+\]
+
+
+#### Kinetic Models
+
+We also explored different modes of decay (expoenential vs. biphasic). 
+Additionally, we also investigated differences in decay between individuals with different of demographic characteristics. 
+
+##### Shared variables and parameters
+
+The following variables and parameters are shared across all decay models:
+
+- $T_{ij}$ = time of sample collection post-infection for individual i and measurement j.
+- $\omega_{i}$ = baseline value for individual $i$ 
+- $\lambda _{i}$ = boost for individual $i$ (restricted to values greater than 0)
+- $\tau_{i}$ = duration of linear incrase for individual $i$ (restricted to values greater than 0)
+- $D$ = time between infection and start of linear increase
+- $\mu^\omega$ = average individual's baseline rate
+- $\mu^\lambda$ = average individual's boost from baseline at day D (restricted to values greater than 0)
+- $\mu^{\tau}$ = average individuals log time to peak from day D
+- $\Sigma$ = covariance matrix for average baseline and boost
+
+
+All models follow the same general temporal pattern:
+
+1. Individuals start at their baseline values $\omega_{i}$
+2. After $D$ days, an individuals value immediately increases by $\lambda _{i}$
+3. Over time, an individuals value decays
+
+We allow for baseline values and boosts to vary between individuals, but assume the decay rate is constant.
+
+##### Exponential decay model
+
+For the exponential model, we assume that decay follows an exponential pattern with the decay parameter $\delta$ (restricted to be greater than zero).
+
+\[
+\begin{aligned}
+        Y_{ij}&= 
+        \begin{cases}
+                 \omega_{i}  & T_{ij} < D \\
+                  \omega_{i} +\lambda_i \times \frac{T_{ij}-D}{\tau_i -D}  & D \leq T_{ij} < \tau_i \\
+                \omega_{i} + \lambda _{i} \times e^{-\delta(T_{ij}-\tau_i)} & T_{ij} \geq \tau_i \\
+        \end{cases} \\     
+        \begin{pmatrix} \omega_{i} \\ \lambda_{i} \\ log(\tau_{i}) \end{pmatrix}
+        &\sim  \text{MVN}(\begin{pmatrix} \mu^{\omega}\\ \mu^{\lambda} \\ \mu^{\tau} \end{pmatrix},\Sigma) \\
+\end{aligned}
+\]
+
+
+##### Biphasic decay model
+
+For the biphasic decay model, we assume that each marker's value is determined by two independent components that each decay exponentially.
+The proportion of these two components is unknown.
+
+- $\theta_1$ = decay rate for first component (restricted to be greater than zero)
+- $\theta_2$ = decay rate for second component (restricted to be greater than zero)
+- $\alpha$ = proportion of boost due to first component (restricted between 0 and 1)
+
+\[
+\begin{aligned}
+        Y_{ij}&= 
+        \begin{cases}
+                 \omega_{i}  & T_{ij} < D \\
+                 \omega_{i} +\lambda_i \times \frac{T_{ij}-D}{\tau_i -D}  & D \leq T_{ij} < \tau_i \\
+                 \omega_{i} + \lambda _{i}
+                    (\alpha e^{-\theta_1 (T_{ij}-D)}+
+                    (1-\alpha)  e^{-\theta_2(T_{ij}-D)}) & T_{ij} \geq \tau_i \\
+        \end{cases} \\     
+        \begin{pmatrix} \omega_{i} \\ \lambda_{i} \\ log(\tau_{i}) \end{pmatrix}
+        &\sim  \text{MVN}(\begin{pmatrix} \mu^{\omega}\\ \mu^{\lambda} \\ \mu^{\tau} \end{pmatrix},\Sigma) \\
+\end{aligned}
+\]
+
+
+
+##### Exponential model including individual covariates (e.g. age group)
+
+To understand how kinetics varied by individual-level attributes, we included age (<10 vs 10+ years), sex (male vs female), blood group (O group vs. non-O group), and infecting serotype (Ogawa vs. Inaba) as binary variables in the model. 
+These covariates were allowed to modify the initial baseline, boost and decay rate.
+
+
+- $X_{i}$ = covariate of individual $i$ (e.g. 0 if < 10 years and 1 if 10+years)
+- $\beta^\omega$ = fixed effect of covariate on baseline
+- $\beta^\lambda$ = fixed effect of covariate on boost
+- $\beta^\tau$ = fixed effect of covariate on time to boost
+- $\beta^\delta$ = fixed effect of covariate on decay
+
+\[
+\begin{aligned}
+        Y_{ij}&= 
+        \begin{cases}
+                 \omega_{i} & T_{ij} < D \\
+                  \omega_{i}+\lambda _{i} \times \frac{T_{ij}-D}{\tau_i -D}  & D \leq T_{ij} < \tau_i \\
+                \omega_{i} + \lambda _{i}  \times e^{-(\delta+\beta^\delta X_i)(T_{ij}-\tau_i)} & T_{ij} \geq \tau_i \\
+        \end{cases} \\     
+        \begin{pmatrix} \omega_{i} \\ \lambda_{i} \\ log(\tau_{i}) \end{pmatrix}
+        &\sim  \text{MVN}(\begin{pmatrix} \mu^{\omega} +\beta^\omega X_i \\ \mu^{\lambda} +\beta^\lambda X_i  \\ \mu^{\tau} + \beta^\tau X_i \end{pmatrix},\Sigma) \\
+\end{aligned}
+\]
+
+
+##### Calculation of key parameters
+
+- Average fold-change: $\begin{cases} 10^{\mu^{\lambda}} & \text{if MBA or ELISA} \\ 2^{\mu^{\lambda}} & \text{if Vibriocidal} \end{cases}$
+- Halflife: $ln(2)/\delta$
+
+
+\pagebreak
+
+### `r eqn_nums("sample-weighting")`
+
+The samples used to train random forest classification models are heavily skewed towards times in the early acute and convalescent period due to the higher density of blood draws during that period and the limited loss to follow-up early on (**Figure S1**). This skewed distribution of infection times likely does not represent the likely flatter distribution of infection times in a study population during a cross-sectional survey. We would expect that the assessments of model fit might be misleading or overly optimistic if this skew is not accounted for.
+
+We attempted to re-weight the samples used to train random forest models in each class based on an expected distribution of time since infection. Additionally, we used weighting to account for class imbalance such that the sum of weights among recently infected and non-recently infected were made equal.
+
+#### Expected distribution of infection times
+
+For this analysis, we decided to assume a constant hazard of infection with an annual incidence rate of 10%. When conducting a cross-sectional serosurvey at one point in time, we would expect that the time since last infection should be exponentially distributed. This could be modified given a different understanding of distribution of last infection times. Using the cumulative distribution function of an exponential distribution, we can understand the expected proportion of samples from each time slice.
+
+#### Defining time slices
+
+As shown in **Figure S1**, the day of sample collection we have for each sample are clumped around certain time points. In order to properly reweight the samples we have, we need to consider what unobserved infections the samples are ‘standing in’ for.
+
+Given a particular infection window (e.g. 200-day), we assigned each sample to whether they were inside or outside of the window. We assumed baseline samples (collected <5 days post infection) of cases and household contacts were always outside of the infection window.
+
+Next, we further divided the time inside and outside the infection window into time slices. For cases, samples were collected around 2, 7, 30, 90, 180, 270, 360, 540, 720, 900 and 1080 days. We used these times to define the time slices using the average of consecutive time points as dividers. We assumed that samples from any case after 540 days as well as uninfected contacts belonged to the same time slice.
+
+
+```{r time-slice, eval=TRUE}
+
+annual_incidence=0.1 #expected annual incidence (assuming constant hazard)
+start_window = 5 #choose when the window begins
+end_window = 200 #choose when the window ends
+decayed=540 
+
+new_day_df <- wide_analysis %>% 
+        mutate(new_day=ifelse(day_actual>=decayed | status=="Contact",
+                              decayed,day)) %>%
+        mutate(window = ifelse(day_actual>=start_window & 
+                                   day_actual <=end_window &
+                                   status=="Case", 1,0 )) %>%
+        mutate(window_type= ifelse(window==1,"During","After")) %>%
+        mutate(window_type= ifelse(window==0 & new_day < start_window,
+                                   "Before",window_type))
+    
+#calculate daily hazard
+lambda <- annual_incidence/365.25
+  
+#calculate the weights for each category
+weight_table_df <-
+  new_day_df %>%
+        group_by(status,day, window,window_type,new_day) %>%
+        count() %>% 
+        #   
+        #   window,window_type,new_day) %>%
+        # count() %>% 
+        # ungroup() %>%
+        # #weight to adjust for class imbalance
+        # mutate(class_weight= (window*(sum(n*window)) +
+        #                           (1-window)*(sum(n*(1-window))))/sum(n),
+        #        class_weight=0.5/class_weight
+        # ) %>%
+        
+        #make bounds for each category
+        arrange(window_type,new_day) %>%
+        group_by(window_type) %>%
+        #find midpoints between categories
+        mutate(lb=(new_day-lag(new_day,1))/2+lag(new_day,1)) %>%
+        mutate(ub=lead(lb,1)) %>%
+        
+        #set bounds for data bordering thresholds
+        mutate(lb=ifelse(window_type== "Before" & 
+                             new_day==min(new_day),
+                         0,lb)) %>%
+        mutate(ub=ifelse(window_type== "Before" & 
+                             new_day==max(new_day),
+                         start_window,ub)) %>%
+        mutate(lb=ifelse(window_type== "During" & 
+                             new_day==min(new_day),
+                         start_window,lb)) %>%
+        mutate(ub=ifelse(window_type== "During" & 
+                             new_day==max(new_day),
+                         end_window,ub)) %>%
+        mutate(lb=ifelse(window_type== "After" & 
+                             new_day==min(new_day),
+                         end_window,lb)) %>%
+        mutate(ub=ifelse(window_type== "After" & 
+                             new_day==max(new_day),
+                         Inf,ub))%>%
+        mutate(day_cat= paste0("[",lb,",",ub,")")) 
+
+
+weight_table_df %>%  ungroup() %>%
+  mutate(`200-day Infection Window` =ifelse(window==0,
+                                            "Outside","Inside")) %>%
+    group_by(`200-day Infection Window`) %>%
+    mutate(Percent=round(n/sum(n)*100)) %>%
+    mutate(`n (%)`= paste0(n," (",Percent,")")) %>%
+    ungroup()%>%
+    arrange(`200-day Infection Window`,status,day) %>%
+    mutate(Day=factor(day)) %>%
+    select(`200-day Infection Window`,
+            Status=status,
+           Day,
+           `Time Slice`=day_cat,
+           `n (%)`
+           ) %>%
+          flextable::flextable() %>%
+          flextable::merge_v(c(1,2),combine=TRUE) %>%
+          flextable::valign(j=c(1,2),valign="top")%>%
+                flextable::autofit()
+
+
+```
+
+
+All samples belonging to the same time slice are equally weighted and stand in for all potential infection times within the slice. If the proportion of samples for given time slice does not match what is expected from an exponential distribution, they can now be properly weighted.
+
+
+#### Weight calculation
+
+We calculated weights to account for both class imbalance and distribution of infection times. To account for class imbalance, we simply created weights so the sum of weights among samples inside and that of samples outside the window were equal. For the class weight, samples within each class were equally weighted.
+
+To account for the distribution of infection times, we calculated both the observed and the expected proportion of samples to be in each time slice. The calculated time-based weight to account for infection time is the ratio of the expected versus observed proportion (**Figure S7**).
+
+The final weight used in our analyses is the product of the class weight and the time-based weight. It was recalculated for every different length of infection window and each fold in cross-validation.
+
+\pagebreak
+
+## Supplementary Figures and Tables
+
+```{r captions2,  eval=TRUE}
+vars <- list()
+
+tab_nums <- captioner(prefix = "Table S", auto_space = FALSE)
+fig_nums <- captioner(prefix = "Figure S", auto_space = FALSE)
+
+fig_nums(name = "vibplot", caption = "Vibriocidal Ogawa measurements among individuals selected from the SMIC and PIC cohorts", display = FALSE)
+
+fig_nums(name = "case-timing", caption = "Timing of sample collection among culture confirmed cases relative to date of infection", display = FALSE)
+
+# tab_nums(name = "hipos-description", caption = "Description of the pooled convalescent plasma used as a standard for dilution series", display = FALSE)
+
+tab_nums(name = "tableone", caption = "Individual characteristics of culture confirmed cholera patients and uninfected household contacts", display = FALSE)
+
+fig_nums(name = "4param-loglogistic-1", caption = "Postive control dilution curve and four parameter log-logistic curve fits for Vibrio cholerae O1 antigen multiplex bead assay markers", display = FALSE)
+
+fig_nums(name = "4param-loglogistic-2", caption = "Postive control dilution curve and four parameter log-logistic curve fits for additional antigen multiplex bead assay markers", display = FALSE)
+
+fig_nums(name = "RAU-calc-1", caption = "Relationship between relative antibody units and median fluorescence intensity for additional antigen multiplex bead assay markers", display = FALSE)
+
+fig_nums(name = "RAU-calc-2", caption = "Relationship between relative antibody units and median fluorescence intensity for non-Vibrio cholerae O1 antigen multiplex bead assay markers", display = FALSE)
+
+# fig_nums(name = "corr-rau-MFI", caption = "Correlation between relative antibody unit and net median fluorescence intensity", display = FALSE)
+
+fig_nums(name = "weighting", caption = "Weights used for random forest models at each infection window", display = FALSE)
+
+
+fig_nums(name = "spaghetti-netmfi", caption = "Multiplex bead assay Net MFI measurements of IgG, IgM, and IgA against V. cholerae O1 antigens among culture confirmed cholera patients", display = FALSE)
+
+fig_nums(name = "supp-spaghetti-RAU", caption = "Multiplex bead assay relative antibody unit measurements of IgG, IgM, and IgA against additional antigens among culture confirmed cholera patients", display = FALSE)
+
+fig_nums(name = "supp-spaghetti-netmfi", caption = "Multiplex bead assay Net MFI measurements of IgG, IgM, and IgA against additional antigens among culture confirmed cholera patients", display = FALSE)
+
+
+fig_nums(name = "correlellogram", caption = "Correlation matrix of multiplex bead assay biomarkers", display = FALSE)
+
+tab_nums(name = "decay-model-parameterization", caption = "Biphasic and Exponential decay model comparison", display = FALSE)
+
+fig_nums(name = "ind-trajectory-ogawaIgG", caption = "Individual-level trajectories of Ogawa OSP IgG", display = FALSE)
+fig_nums(name = "ind-trajectory-ogawaIgA", caption = "Individual-level trajectories of Ogawa OSP IgA", display = FALSE)
+fig_nums(name = "ind-trajectory-ogawaIgM", caption = "Individual-level trajectories of Ogawa OSP IgM", display = FALSE)
+
+fig_nums(name = "ind-trajectory-ctIgG", caption = "Individual-level trajectories of CT-B IgG", display = FALSE)
+fig_nums(name = "ind-trajectory-ctIgA", caption = "Individual-level trajectories of CT-B IgA", display = FALSE)
+fig_nums(name = "ind-trajectory-ctIgM", caption = "Individual-level trajectories of CT-B IgM", display = FALSE)
+
+tab_nums(name = "decay-model-estimation", caption = "Estimated duration of half-life and average fold-change from univariate exponential decay models", display = FALSE)
+
+fig_nums(name = "spaghetti-agegroup", caption = "Multiplex bead assay RAU measurements of IgG, IgM, and IgA against V. cholerae O1 antigens among culture confirmed cholera patients, by age group", display = FALSE)
+
+fig_nums(name = "spaghetti-serotype", caption = "Multiplex bead assay RAU measurements of IgG, IgM, and IgA against V. cholerae O1 antigens among culture confirmed cholera patients, by infecting serotype", display = FALSE)
+
+tab_nums(name = "decay-model-covariates", caption = "Relative parameter values for univariate exponential decay models including covariates for different serological markers", display = FALSE)
+
+# fig_nums(name = "compare-window", caption = "Luminex measurements of IgG, IgM, and IgA against three V. cholerae O1 antigens across periods among culture confirmed cholera patients and uninfected household contacts", display = FALSE)
+
+# fig_nums(name = "single-marker-cvAUC", caption = "Cross-validated area under the curve for single Luminex marker conditional random forest models using 90-day, 180-day, and 365-day infection windows", display = FALSE)
+# 
+# tab_nums(name = "single-marker-cvAUC", caption = "Cross-validated area under the curve for single multiplex bead assay marker conditional random forest models using 90-day, 180-day, and 365-day infection windows", display = FALSE)
+
+fig_nums(name = "fig2-netmfi", caption = "Estimated duration of half-life and average fold-change from exponential decay models fit to Net MFI measurements", display = FALSE)
+
+fig_nums(name = "marker-importance",
+         caption="Cross-validated receiver operator characteristic curves and permutation importance for random forest models using 45-day, 120-day, 200-day, and 300-day infection window",
+         display=FALSE)
+
+
+fig_nums(name = "superlearner",
+         caption="Comparison of cross-validated area under the ROC curve between ensemble and random forest models",
+         display=FALSE)
+
+
+fig_nums(name = "fig3-netmfi",
+         caption="Cross-validated area under the receiver operating characteristic curve (cvAUC) and predictor importance rankings for Net MFI markers across random forest models with varying infection windows",
+         display=FALSE)
+
+
+tab_nums(name = "multi-marker-cvAUC", caption = "Comparison of cross-validated AUC between multiple marker random forest models using 45-day, 120-day, 200-day, and 300-day infection windows", display = FALSE)
+
+tab_nums(name = "panel-select", caption = "Comparison of cross-validated AUC between multiplex bead assay IgG multiple marker random forest models using 45-day, 120-day, 200-day, and 300-day infection windows", display = FALSE)
+
+fig_nums(name = "fig4-netmfi",
+         caption="Comparison of cross-validated AUC across random forest models trained on traditional and Net MFI MBA serological markers for 45-day, 120-day, 200-day, and 300-day infection windows",
+         display=FALSE)
+
+fig_nums(name = "fig5-netmfi",
+         caption="Specificity and time-varying sensitivity estimates of random forest models trained on traditional and Net MFI MBA serological markers with leave-one-out cross-validation for 45-day, 120-day, 200-day, and 300-day infection windows using different cut-offs",
+         display=FALSE)
+
+
+
+fig_nums(name = "no-ctb-cvAUC",
+         caption="Comparison of cross-validated AUC across random forest models trained on traditional and MBA serological markers excluding anti-CT-B markers for 45-day, 120-day, 200-day, and 300-day infection windows",
+         display=FALSE)
+
+fig_nums(name = "marker-cutoff",
+         caption="Marker cutoffs to detect recent infection within the past 120 days",
+         display=FALSE)
+
+```
+
+### `r fig_nums("vibplot")`
+
+Vibriocidal titer measurements were transformed by dividing the measurement by 5 and then taking the logarithm (base 2) (A). X-axis indicates the approximate collection day for each measurement for cases. All measurements for uninfected household contacts are shown regardless of collection day (B).
+
+```{r vibplot, eval=TRUE, fig.height=5}
+
+#get selected individuals here
+selected <- distinct(wide_analysis,id,sample,day) %>%
+                mutate(selected="Selected")
+
+original <- getLongSeroTidy() %>%
+        left_join(demo_id, by="id") %>%
+        left_join(selected, by= c("id","day")) %>%
+        mutate(selected=ifelse(is.na(selected),"Not selected",selected)) %>%
+        mutate(`Age Group` = ifelse(age<10,"<10 years","10+ years"))%>%
+        mutate(`Age Group`=factor(`Age Group`,levels=c("<10 years","10+ years"))) %>%
+        mutate(`Contact Infection Status`=case_when(
+                inf_category=="Uninfected" ~ "Uninfected",
+                is.na(inf_category) ~ "Missing",
+                TRUE ~ "Infected"
+        )) %>%
+                filter(full_test=="Vibriocidal_Ogawa") %>%
+        mutate(vib_new=log2(value/5))
+        
+#         
+# weird_days <- 
+#         bind_rows(
+#         #         wide_analysis %>% 
+#         # distinct(day,id,sample,Vibriocidal_Inaba) %>%
+#         # arrange(id,as.numeric(day)) %>%
+#         # group_by(id)%>%
+#         # filter(day>=90) %>%
+#         # mutate(diff=Vibriocidal_Inaba-lag(Vibriocidal_Inaba,1)) %>%
+#         # filter(lead(diff,1)>1),
+#         # 
+#         wide_analysis %>% 
+#         distinct(day,id,sample,Vibriocidal_Ogawa) %>%
+#         arrange(id,as.numeric(day)) %>%
+#         group_by(id)%>%
+#         filter(day>=90) %>%
+#         mutate(diff=Vibriocidal_Ogawa-lag(Vibriocidal_Ogawa,1)) %>%
+#         filter(lead(diff,1)>1)
+#         )  %>%
+#         select(id,weird_day=day) %>%
+#         left_join(original,by="id") %>%
+#         filter(day>=weird_day)
+
+
+
+p1a <- original %>%   filter(status=="Case") %>%
+                mutate(`Age Group`=paste0("Case\n",`Age Group`)) %>%
+                ggplot(aes(x=factor(day),y=vib_new,col=selected))+
+                geom_boxplot()+
+                facet_grid(.~`Age Group`)+
+                # scale_alpha_manual(values=c(0.1,0.2))+
+                theme_bw()+
+                scale_y_continuous("log2(Vibriocidal Ogawa Titer/5)",breaks=seq(0,14,2))+
+                xlab("Collection Day")+
+                theme(panel.grid.minor = element_blank(),
+                      legend.position = "none"
+                      )
+
+p1b <- original %>%   filter((status=="Contact" & `Contact Infection Status`=="Uninfected")) %>%
+                mutate(status="Uninfected\nContact") %>%
+                rename(Status=selected) %>%
+                ggplot(aes(y=vib_new,col=Status,x=Status))+
+                geom_boxplot()+
+                facet_grid(.~status)+
+                theme_bw()+
+                scale_y_continuous("log2(Vibriocidal Ogawa Titer/5)",breaks=seq(0,14,2))+
+                theme(panel.grid.minor = element_blank(),
+                      axis.title.x = element_blank(),
+                      axis.text.x = element_text(angle=45,hjust=1)
+                      
+)
+
+
+plot_grid(p1a,p1b,ncol=2,
+          labels=c("A","B"),align = "h",rel_widths = c(2.5,1)
+          )
+
+```
+
+
+\pagebreak
+
+
+### `r fig_nums("case-timing")`
+
+Each point represents a blood sample collection occurred for a confirmed case (A). The daily number of samples is shown on the y-axis. Red dashed lines are placed at the threshold values for infections windows (45, 120, 200, and 300 days) (B).
+
+```{r case-timing,  fig.height = 10, eval=TRUE}
+
+
+
+timing_df <- case_days    %>% left_join(demo_id) %>%
+                filter(status=="Case") 
+
+
+# p_dot_plot <- timing_df %>%
+#                 ggplot(aes(x=day_actual,y=id))+
+#                 geom_line()+
+#                 geom_point(aes(col=factor(day)))+
+#                 facet_grid(age_group~.,space = "free",scales = "free")+
+#                 scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+#                 geom_vline(xintercept = c(45, 120,200,300),
+#                            col=rep(c("darkred","red","darkorange","orange"),4),
+#                            lty=2)+
+#                 theme_cowplot()+
+#                 scale_color_manual(values=c("skyblue","darkred","darkred","red","darkorange",
+#                                            "orange","skyblue",
+#                                            "skyblue","skyblue","skyblue","skyblue"
+#                                            ))+
+#                 ylab("Participant ID")+
+#                 theme(legend.position = "none")
+# 
+# p_sample_curve <- timing_df %>%
+#                 group_by(status, day_actual, day) %>% count() %>%
+#                 ggplot(aes(x=day_actual,y=n))+
+#                 geom_col(aes(fill=factor(day)))+
+#                 scale_y_continuous("Samples", breaks=seq(0,25,5))+
+#                 scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+#                 geom_vline(xintercept = c(45, 120,200,300),
+#                            col=c("darkred","red","darkorange","orange"),
+#                            lty=2)+
+#                 theme_cowplot() +
+#                 scale_fill_manual(values=c("skyblue","darkred","darkred","red","darkorange",
+#                                            "orange","skyblue",
+#                                            "skyblue","skyblue","skyblue","skyblue"
+#                                            ))+
+#                 theme(legend.position = "none")
+
+
+
+
+
+p_sample_curve <- timing_df %>%
+                group_by(status, day_actual, day) %>% count() %>%
+                ggplot(aes(x=day_actual,y=n))+
+                geom_col()+
+                scale_y_continuous("Samples", breaks=seq(0,25,5))+
+                scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+                geom_vline(xintercept = c(45, 120,200,300),col="red",
+                           lty=2)+
+                theme_cowplot()+
+                theme(legend.position = "none")
+
+
+p_dot_plot <- timing_df %>%
+                ggplot(aes(x=day_actual,
+                           y=str_pad(as.numeric(as.factor(id)),
+                           side="left",pad="0",width = 3)
+                           ))+
+                geom_point()+
+                geom_line()+
+                facet_grid(age_group~.,space = "free",scales = "free")+
+                scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+                geom_vline(xintercept = c(45, 120,200,300),col="red",
+                           lty=2)+
+                theme_cowplot()+
+                ylab("Participant ID")
+
+plot_grid(p_dot_plot,p_sample_curve,ncol = 1,align="v",rel_heights = c(3,1),axis="lr",
+          labels=c("A","B")
+          )
+
+
+
+# p1 <- timing_df %>%
+#                 group_by(status, day_actual, day) %>% count() %>%
+#                 ggplot(aes(x=day_actual,y=n))+
+#                 geom_col()+
+#                 # geom_col(aes(fill=day_actual>5 & day_actual<=120))+
+#                 scale_y_continuous("Samples", breaks=seq(0,25,5))+
+#                 scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+#                 # geom_vline(xintercept = c(5,120),col="red",
+#                 #            lty=3)+
+#                 # scale_fill_manual(values=c("black","red"))+
+#                 theme_cowplot()+
+#                 theme(legend.position = "none")+
+#                 ggtitle("120-day Infection window")
+# 
+# 
+# p2 <- timing_df %>%
+#                 group_by(status, day_actual, day) %>% count() %>%
+#                 ggplot(aes(x=day_actual,y=n))+
+#                 geom_col(aes(fill=day_actual>5 & day_actual<=300))+
+#                 scale_y_continuous("Samples", breaks=seq(0,25,5))+
+#                 scale_x_continuous("Days post infection", breaks = c(90,180,365*c(0,1,2,3)))+
+#                 geom_vline(xintercept = c(5,300),col="red",
+#                            lty=3)+
+#                 scale_fill_manual(values=c("black","red"))+
+#                 theme_cowplot()+
+#                 theme(legend.position = "none")+
+#                 ggtitle("300-day Infection window")
+
+
+
+# plot_grid(p1,p2,nrow=1)
+
+```
+
+\pagebreak
+
+
+
+```{r hipos-description, eval=FALSE}
+
+### `r tab_nums("hipos-description")`
+
+Standards contain equal parts of these five samples. 
+
+controldf <-data.frame(
+        `Study Code`= c("PIC","SMIC","SMIC","SMIC","SMIC"),
+        ID = c(52,192,221,200,178),
+        `Day of Collection` = c(7,7,7,7,7)
+) 
+
+colnames(controldf) <- c("Study Code","ID","Day of Collection")
+
+controldf%>% flextable::flextable() %>%
+        flextable::autofit()
+
+# \pagebreak
+
+```
+
+
+
+### `r fig_nums("4param-loglogistic-1")`
+
+Each point represents the median fluorescence intensity measurement (y-value) for a dilution (x-value) of pooled convalescent sera from confirmed positive *Vibrio cholerae* O1 patients. Each plate's dilution series were fit using a four-parameter log-logisitic regression (black lines). Shape of each point is unique to each plate.
+
+```{r 4param-loglogistic-1, eval=TRUE}
+
+parameters <- read_rds("source/final_code/luminex_recommendation/generated_rds/log_logistic_results/2021-10-18_4Ploglogistic_parameters.rds")%>%
+            mutate(antigen=str_remove_all(antigen,":|-| "))
+
+
+HiPos <- getLongLuminexTidy(reload = FALSE) %>%
+            filter(str_detect(sample,"Hi Pos")) %>%
+            filter(subclass=="total") %>%
+            filter(str_detect(batch,"Case|Series"))  %>%
+            mutate(antigen=str_remove_all(antigen,":|-| "))
+
+
+#generate curve for each plate combination
+curves <- data.frame()
+combos<- distinct(HiPos, batch,isotype,antigen)
+dilution_range <- 10^seq(1,7,by=0.1)
+for(i in 1:nrow(combos)){
+  
+  param_tmp <- filter(parameters,
+                      batch==combos$batch[i],
+                      isotype==combos$isotype[i],
+                      antigen==combos$antigen[i]
+                      )
+  
+  curve_tmp <- data.frame(
+                dilution=dilution_range,
+                avgMFI=
+                  getCurve4(param_tmp,dilution_range)) %>%
+              mutate(batch=combos$batch[i],
+              isotype=combos$isotype[i],
+              antigen=combos$antigen[i]
+              )
+  
+  curves <- bind_rows(curves,curve_tmp)
+}
+
+
+HiPos %>% filter(antigen %in% O1_antigens) %>%
+            #rename some the antigen for plotting
+            left_join(antigen_df) %>%
+            rename(Isotype=isotype) %>%
+    ggplot()+
+    geom_line(data=curves%>% filter(antigen %in% O1_antigens)%>%
+                            rename(Isotype=isotype) %>%
+            #rename some the antigen for plotting
+            left_join(antigen_df),
+              aes(group=batch,
+                  x=dilution,y=avgMFI),alpha=0.5
+              )+
+    geom_point(aes(x=dilution,y=avgMFI,col=Isotype,shape=batch),alpha=0.5)+
+    facet_grid(Isotype~antigen_pretty)+
+    scale_x_continuous("Dilution",trans="log10",breaks=c(10^2,10^5),minor_breaks = NULL)+
+    scale_y_continuous("Median Fluorescence Intensity (MFI)",trans="log10")+
+    scale_shape_manual(values=1:10)+
+    theme_bw()+
+    theme(legend.position = "none")
+
+
+```
+
+\pagebreak
+
+### `r fig_nums("4param-loglogistic-2")`
+
+Each point represents the median fluorescence intensity measurement (y-value) for a dilution (x-value) of pooled convalescent sera from confirmed positive *Vibrio cholerae* O1 patients. Each plate's dilution series were fit using a four-parameter log-logisitic regression (black lines). Shape of each point is unique to each plate.
+
+```{r 4param-loglogistic-2, eval=TRUE}
+
+
+HiPos %>% filter(!antigen %in% O1_antigens) %>%
+            #rename some the antigen for plotting
+            left_join(antigen_df) %>%
+            rename(Isotype=isotype) %>%
+    ggplot()+
+    geom_line(data=curves%>% filter(!antigen %in% O1_antigens)%>%
+                            rename(Isotype=isotype) %>%
+            #rename some the antigen for plotting
+            left_join(antigen_df),
+              aes(group=batch,
+                  x=dilution,y=avgMFI),alpha=0.5
+              )+
+    geom_point(aes(x=dilution,y=avgMFI,col=Isotype,shape=batch),alpha=0.5)+
+    facet_grid(Isotype~antigen_pretty)+
+    scale_x_continuous("Dilution",trans="log10",breaks=c(10^2,10^5),minor_breaks = NULL)+
+    scale_y_continuous("Median Fluorescence Intensity (MFI)",trans="log10")+
+    scale_shape_manual(values=1:10)+
+    theme_bw()+
+    theme(legend.position = "none")
+
+
+
+
+```
+
+\pagebreak
+
+### `r fig_nums("RAU-calc-1")`
+
+Relative antibody unit (RAU) measurements for each sample are plotted against the median fluorescence intensity (MFI) calculated from averaging triplicate measurements. Relative antibody units estimates were truncated at 10^2 and 10^5 (red points).
+
+```{r RAU-calc-1, eval=TRUE}
+
+analysisData$compare_data %>% 
+                    filter(antigen %in% O1_antigens) %>%
+                    left_join(antigen_df) %>%
+                    ggplot(aes(x=avgMFI,y=RAU))+
+                            geom_point(aes(col=RAU %in% c(-2,-5),shape=batch),alpha=0.1)+
+                    ylab("log10(1/RAU)")+
+                    scale_x_continuous("MFI",trans="log10")+
+                    scale_color_manual(values=c("black","red"))+
+                    scale_shape_manual(values=1:12)+
+                    facet_grid(isotype~antigen_pretty)+
+                    theme_cowplot()+
+                    theme(axis.text.x = element_text(angle=45,hjust = 1),
+                          legend.position = "none")
+
+
+
+```
+
+\pagebreak
+
+### `r fig_nums("RAU-calc-2")`
+
+Relative antibody unit (RAU) measurements for each sample are plotted against the median fluorescence intensity (MFI) calculated from averaging triplicate measurements. Relative antibody units estimates were truncated at 10^2 and 10^5 (red points). LT-B = heat labile toxin B subunit. LT-H = heat labile toxin holotoxin.
+
+```{r RAU-calc-2, eval=TRUE}
+
+analysisData$compare_data  %>% 
+                    filter(!antigen %in% O1_antigens) %>%
+                    left_join(antigen_df) %>%
+                    ggplot(aes(x=avgMFI,y=RAU))+
+                            geom_point(aes(col=RAU %in% c(-2,-5),shape=batch),alpha=0.1)+
+                    ylab("log10(1/RAU)")+
+                    scale_x_continuous("MFI",trans="log10")+
+                    scale_color_manual(values=c("black","red"))+
+                    scale_shape_manual(values=1:12)+
+                    facet_grid(isotype~antigen_pretty)+
+                    theme_cowplot()+
+                    theme(axis.text.x = element_text(angle=45,hjust = 1),
+                          legend.position = "none")
+
+```
+
+\pagebreak
+
+
+
+```{r corr-rau-MFI, eval=FALSE}
+
+
+### `r fig_nums("corr-rau-MFI")`
+
+# Each point represents the Spearman rank correlation between the between the relative antibody unit (RAU) and net median fluorescence intensity for cases, by day of collection. Measurements were log10 transformed prior to calculating correlation.
+
+analysisData$compare_data %>% 
+        filter(!day %in% c(720,1080)) %>%
+        filter(status=="Case")%>%
+        group_by(antigen,isotype,day) %>%
+        summarise(r=cor.test(~ `Net MFI` + RAU,method="spearman")$estimate,
+                  p.value=cor.test(~ `Net MFI` + RAU,method="spearman")$p.value,
+                  ) %>% rename(Isotype=isotype) %>%
+        ggplot(aes(x=as.factor(day),y=r,shape=Isotype))+
+                geom_point(aes(col=r<0.85),alpha=0.5)+
+                facet_wrap(.~antigen)+
+                scale_color_manual(values = c("black","red"))+
+                xlab("Day")+
+                ylab("Spearman Correlation")+
+                theme_bw()
+
+# \pagebreak
+
+
+```
+
+
+### `r fig_nums("weighting")`
+
+The yellow columns represent the proportion of samples that fall within the time interval on the x-axis (A). The purple columns indicate the expected proportion of samples that would fall within the time interval if infection times were exponentially distributed with a 10% annual incidence. Both of these proportions condition on the sample already being either inside or outside the infection window. Each point shows the weight used for each infection window (B). 
+
+```{r weighting, eval=TRUE, fig.height=10}
+
+
+annual_incidence=0.1 #expected annual incidence (assuming constant hazard)
+start_window = 5 #choose when the window begins
+end_window = 200 #choose when the window ends
+decayed=540 
+
+new_day_df <- wide_analysis %>% 
+        mutate(new_day=ifelse(day_actual>=decayed | status=="Contact",
+                              decayed,day)) %>%
+        mutate(window = ifelse(day_actual>=start_window & 
+                                   day_actual <=end_window &
+                                   status=="Case", 1,0 )) %>%
+        mutate(window_type= ifelse(window==1,"During","After")) %>%
+        mutate(window_type= ifelse(window==0 & new_day < start_window,
+                                   "Before",window_type))
+    
+#calculate daily hazard
+lambda <- annual_incidence/365.25
+  
+#calculate the weights for each category
+weight_df <- new_day_df %>%
+        group_by(window,window_type,new_day) %>%
+        count() %>% 
+        ungroup() %>%
+        #weight to adjust for class imbalance
+        mutate(class_weight= (window*(sum(n*window)) +
+                                  (1-window)*(sum(n*(1-window))))/sum(n),
+               class_weight=0.5/class_weight
+        ) %>%
+        
+        #make bounds for each category
+        arrange(window_type,new_day) %>%
+        group_by(window_type) %>%
+        #find midpoints between categories
+        mutate(lb=(new_day-lag(new_day,1))/2+lag(new_day,1)) %>%
+        mutate(ub=lead(lb,1)) %>%
+        
+        #set bounds for data bordering thresholds
+        mutate(lb=ifelse(window_type== "Before" & 
+                             new_day==min(new_day),
+                         0,lb)) %>%
+        mutate(ub=ifelse(window_type== "Before" & 
+                             new_day==max(new_day),
+                         start_window,ub)) %>%
+        mutate(lb=ifelse(window_type== "During" & 
+                             new_day==min(new_day),
+                         start_window,lb)) %>%
+        mutate(ub=ifelse(window_type== "During" & 
+                             new_day==max(new_day),
+                         end_window,ub)) %>%
+        mutate(lb=ifelse(window_type== "After" & 
+                             new_day==min(new_day),
+                         end_window,lb)) %>%
+        mutate(ub=ifelse(window_type== "After" & 
+                             new_day==max(new_day),
+                         Inf,ub))%>%
+        mutate(day_cat= paste0("[",lb,",",ub,")")) %>%
+
+        
+        
+        #calculate the probability
+        group_by(window) %>%
+        mutate(obs_prob=n/sum(n)) %>%
+        mutate(exp_prob=pexp(ub,rate=lambda)-pexp(lb,rate=lambda)) %>%
+        
+        #weight to adjust for timing within class
+        mutate(obs_rel=(obs_prob/sum(obs_prob))) %>%
+        mutate(exp_rel=(exp_prob/sum(exp_prob))) 
+
+#combine baseline with decayed individuals
+weight_df<- bind_rows(
+                weight_df %>% filter(!(new_day==max(new_day) | window_type=="Before")),
+                weight_df %>% filter(new_day==max(new_day) | window_type=="Before") %>%
+                        mutate(obs_rel=sum(obs_rel),
+                               exp_rel=sum(exp_rel),
+                        )) %>%   
+        filter(day_cat!="[0,5)") %>%
+        mutate(day_cat= recode(day_cat,"[450,Inf)"="[450,Inf) or [0,5)")) %>%
+        mutate(time_weight= exp_rel/obs_rel) %>%
+        ungroup() %>%
+        #make final standardized weight
+        mutate(final_weight=class_weight*time_weight) %>%
+        
+        #make it pretty
+        mutate(new_day=as.factor(new_day)) %>%
+        arrange(new_day,-window) %>%
+        select(day_cat,window,
+               Observed=obs_rel,
+               Expected=exp_rel) %>%
+        gather(Probability,value,-c(day_cat,window)) %>%
+        
+        mutate(day_cat=factor(day_cat,levels=unique(day_cat)),
+               window=factor(window,
+                      levels=c("1","0"),
+                      labels=c("Inside 200-day Window",
+                               "Outside 200-day Window")),
+               Probability= factor(Probability,
+                                   levels=c("Observed","Expected"))
+               )
+
+weight_p1<- weight_df %>% 
+        ggplot(aes(x=day_cat))+
+        geom_col(aes(y=value,fill=Probability),position=position_dodge2())+
+        facet_grid(.~window,scales = "free_x",space = "free_x")+
+        theme_bw()+
+        scale_y_continuous("Within-class\nProbability",limits=c(0,1))+
+        scale_fill_viridis_d(direction = -1)+
+        xlab("Day Category")+
+        theme(legend.position = "bottom")
+
+
+weight_p2 <- bind_rows(
+    wide_analysis %>% getWeight(end_window=45) %>%
+            addInfectionWindow(end_window = 45) %>%
+                mutate(`Infection Window` = "45-day") %>%
+                mutate(class=inf_45),
+    wide_analysis %>% getWeight(end_window=120) %>%
+                addInfectionWindow(end_window = 120) %>%
+                mutate(`Infection Window` = "120-day")%>%
+                mutate(class=inf_120),
+     wide_analysis %>% getWeight(end_window=200) %>%
+            addInfectionWindow(end_window = 200) %>%
+                mutate(`Infection Window` = "200-day")%>%
+                mutate(class=inf_200),
+    wide_analysis %>% getWeight(end_window=300) %>%
+            addInfectionWindow(end_window = 300) %>%
+                mutate(`Infection Window` = "300-day")%>%
+                mutate(class=inf_300),
+    wide_analysis %>% getWeight(end_window=600) %>%
+            addInfectionWindow(end_window = 600) %>%
+                mutate(`Infection Window` = "600-day")%>%
+                mutate(class=inf_600)
+) %>% mutate(`Infection Window`=factor(`Infection Window`,levels=c("45-day","120-day",
+                                                                   "200-day","300-day",
+                                                                   "600-day"
+                                                                   ))) %>%
+    distinct(day,`Infection Window`,weight,status,class)%>%
+    mutate(class=factor(class,
+                      levels=c("1","0"),
+                      labels=c("Inside Window",
+                               "Outside Window"))) %>%
+    rename(Status=status) %>%
+    ggplot(aes(x=factor(day),y=weight))+
+        geom_hline(yintercept=1,lty=2)+
+        geom_point(aes(col=Status,shape=Status))+
+        theme_bw()+
+        scale_y_continuous("Weight",trans="log10")+
+        scale_x_discrete("Sample collection day")+
+        scale_color_brewer(palette="Dark2")+
+        facet_grid(`Infection Window`~class,scales = "free_x", space = "free_x")+
+        theme(legend.position = "bottom")
+     
+
+plot_grid(weight_p1,weight_p2,nrow=2,
+          labels=c("A","B"),
+          rel_heights = c(1,2.5)
+          )   
+        
+
+
+```
+
+
+\pagebreak
+
+### `r tab_nums("tableone")`
+
+All cases were hospitalized and solely had O1 Vibrio Cholerae isolated. Inaba O1 was isolated from non-Ogawa cases 
+
+
+```{r tableone, eval=TRUE}
+
+characteristics <- casecon_analysis %>% distinct(id,age_group,sex,blood,culture,status,dehydration, `Case Watery Diarrhea Day 7`, `Contact Watery Diarrhea Day 2`,hospital_hrs)
+
+# get categorical variables together
+demotable_1 <- characteristics %>% group_by(status) %>%
+                summarize(n=n(),
+                          `< 5 years`=sum(age_group=="<5 years"),
+                          `5-9 years`=sum(age_group=="5-9 years"),
+                          `10-17 years`=sum(age_group=="10-17 years"),
+                          `18+ years`=sum(age_group=="18+ years"),
+                          
+                          Female = sum(sex=="female"),
+                          
+                          `O Blood Group` = sum(blood=="O"),
+                          
+                          `V. cholerae O1 Ogawa isolated` = sum(culture=="O1-Ogawa"),
+                          `Watery Diarrhea at day 7` = sum(`Case Watery Diarrhea Day 7`=="Yes")
+                          ) %>%
+        gather(variable,value,-c(status,n)) %>% 
+        filter(!is.na(value)) %>%
+        mutate(percent=round(value/n*100)) %>%
+        mutate(final_value= paste0(value," (",percent,")")) %>%
+        mutate(row_name=paste(variable,"(%)")) %>%
+        select(status,n,row_name,final_value)
+
+#get continuous variables together
+demotable_2 <- characteristics %>%
+        filter(status=="Case") %>%
+        group_by(status)%>%
+        summarize( n= n(),
+                        median = round(median(hospital_hrs)),
+                        lower= round(quantile(hospital_hrs,0.25,na.rm = TRUE)),
+                        upper= round(quantile(hospital_hrs,0.75,na.rm = TRUE))
+
+        ) %>% 
+        mutate(row_name="Median Hours of Hospitalization [IQR]") %>%
+        mutate(final_value= paste0(median," [",lower,", ",upper,"]")) %>%
+        select(status,n,row_name,final_value)
+
+#bring together and add additional rows
+demotable_3 <- bind_rows(
+        demotable_1,demotable_2
+) %>% mutate(status=ifelse(status=="Case","Cholera cases","Household contacts")) %>%
+        mutate(column_header=paste0(status,"\n(n=",n,")")) %>%
+        select(column_header,row_name,final_value) %>%
+        spread(column_header,final_value) %>%
+        mutate(`Household contacts\n(n=3)`=ifelse(is.na(`Household contacts\n(n=3)`),
+                                                  "-",`Household contacts\n(n=3)`)) %>%
+        bind_rows(data.frame(row_name="Age Group")) %>%
+        mutate(row_name=factor(row_name,
+                               levels=c("Age Group",
+                                       "< 5 years (%)","5-9 years (%)",
+                                       "10-17 years (%)", "18+ years (%)", 
+                                       "Female (%)",
+                                        "O Blood Type (%)", "V. cholerae O1 Ogawa isolated (%)",
+                                       "Median Hours of Hospitalization [IQR]","Watery Diarrhea at day 7 (%)" 
+                               ))) %>%
+        arrange(row_name) %>%
+        rename(`Characteristics`=row_name)
+
+#turn into flextable object
+demotable_ft <- demotable_3[1:7,] %>% flextable::flextable() %>%
+                flextable::autofit() %>%
+                flextable::padding(i=2:5, j=1, padding.left=20) %>%
+                flextable::align(align = "center",j=2:3,part="all")
+
+
+
+demotable_ft
+
+```
+
+\pagebreak
+
+### `r fig_nums("spaghetti-netmfi")`
+
+The y-axis indicates the log (base 10) of the Net MFI and the x-axis is the number of days post-infection (square-root transformed). Each colored line indicates individual trajectories over time. The Black solid line is a loess smooth function. 
+
+
+```{r spaghetti-netmfi, eval=TRUE}
+
+
+# add to supplement
+# Y-axis indicates the log (base 10) of the relative antibody units (RAU) with limits at 10^-2 and 10-5. X-axis is in days and square-root transformed. Each colored line indicates individual trajectories over time. Black solid line is a Loess smooth function.
+
+analysisData$netMFI_data$long_data %>% filter(status =="Case") %>%
+                filter(test_type=="Luminex") %>%
+                filter(antigen  %in% O1_antigens) %>%
+                left_join(antigen_df) %>%
+                mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM"))) %>%
+                ggplot(aes(x=day_actual,y=value))+
+                        geom_line(aes(group=id,col=antigen_pretty),alpha=0.3)+
+                        geom_smooth(se=FALSE,col="black",lty=1)+
+                        facet_grid(isotype~antigen_pretty,scales = "free_y")+
+                        ylab("log10(Net MFI)")+
+
+                        scale_x_continuous(trans="sqrt",breaks=c(2,30,365,900))+
+                        theme_bw()+
+                        theme(panel.grid.minor = element_blank(),
+                             panel.grid.major.x = element_blank(),
+                             legend.position = "none"
+                              )+
+                        xlab("Days Post Infection")
+
+
+
+```
+
+\pagebreak
+
+
+
+### `r fig_nums("supp-spaghetti-RAU")`
+
+The y-axis indicates the log (base 10) of the inverse RAU and the x-axis is the number of days post-infection (square-root transformed). Each colored line indicates individual trajectories over time. The Black solid line is a loess smooth function. 
+
+```{r supp-spaghetti-RAU, eval=TRUE}
+
+
+ analysisData$RAU_data$long_data %>%
+                filter(test_type=="Luminex")%>%
+                filter(status=="Case") %>%
+                left_join(antigen_df) %>%
+                filter(!O1_antigen) %>%
+                mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM"))) %>%
+                ggplot(aes(x=day_actual,y=value))+
+                        geom_line(aes(group=id,col=antigen_pretty),alpha=0.3)+
+                        geom_smooth(se=FALSE,col="black",lty=1)+
+                        facet_grid(isotype~antigen_pretty,scales = "free_y")+
+                        ylab("log10(1/RAU)")+
+                        
+                        scale_x_continuous(trans="sqrt",breaks=c(2,30,365,900))+
+                        theme_bw()+
+                        theme(panel.grid.minor = element_blank(),
+                             panel.grid.major.x = element_blank(),
+                             legend.position = "none"
+                              )+
+                        xlab("Days Post Infection")
+
+
+
+```
+
+\pagebreak
+
+
+### `r fig_nums("supp-spaghetti-netmfi")`
+
+The y-axis indicates log (base 10) of the Net MFI and the x-axis is the number of days post-infection (square-root transformed). Each colored line indicates individual trajectories over time. The Black solid line is a loess smooth function. 
+
+
+```{r supp-spaghetti-netmfi, eval=TRUE}
+
+ analysisData$netMFI_data$long_data %>%
+                filter(status=="Case") %>%
+                filter(test_type=="Luminex") %>%
+                left_join(antigen_df) %>%
+                filter(!O1_antigen) %>%
+                mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM"))) %>%
+                ggplot(aes(x=day_actual,y=value))+
+                        geom_line(aes(group=id,col=antigen_pretty),alpha=0.3)+
+                        geom_smooth(se=FALSE,col="black",lty=1)+
+                        facet_grid(isotype~antigen_pretty,scales = "free_y")+
+                        ylab("log10(Net MFI)")+
+                        
+                        scale_x_continuous(trans="sqrt",breaks=c(2,30,365,900))+
+                        theme_bw()+
+                        theme(panel.grid.minor = element_blank(),
+                             panel.grid.major.x = element_blank(),
+                             legend.position = "none"
+                              )+
+                        xlab("Days Post Infection")
+
+
+```
+
+
+\pagebreak
+
+### `r fig_nums("correlellogram")`
+
+Spearman correlation coefficients were calculated using 49 samples all of which were collected approximately 30 days post-enrollment for both cases and contacts.
+
+```{r correlellogram, fig.height=10, eval=TRUE}
+
+
+analysisData$new_long_data %>%
+        filter(unit=="log10(1/RAU)") %>%
+        left_join(antigen_df) %>%
+        filter(day==30) %>%
+        mutate(antibody=paste(isotype,antigen_pretty)) %>%
+        select(sample,value,antibody) %>%
+        spread(antibody,value) %>%
+        select(-sample) %>% cor(method="spearman") %>%
+        corrplot(
+                 type = "upper",method="circle"
+        )
+
+```
+
+\pagebreak
+
+
+### `r tab_nums("decay-model-parameterization")`
+
+The expected log-predictive density (ELPD) and standard error difference was calculated using the loo R package. Asterisks denote that the ELPD  of the biphasic model (which includes more parameters) was over 1.96 standard errors larger than the ELPD of the exponential model.See Supplementary Appendix 2 for equations defining each model
+
+```{r decay-model-parameterization, eval=TRUE}
+
+
+
+loo_df <- read_rds(
+            paste0("source/final_code/luminex_recommendation/generated_rds/decay_model_results/",
+                   "fits-compare/",
+                               "loo_df.rds"))  
+
+compare_df_loo<- loo_df %>% 
+            mutate(elpd_loo=round(elpd_loo,1)) %>%
+            select(model,marker,elpd_loo) %>%
+                      spread(model,elpd_loo)
+
+compare_df_diff <- loo_df  %>% 
+        select(model,marker,se_diff) %>%
+        spread(model,se_diff) %>%
+        mutate(diff=
+                 ifelse(biphasic!=0,
+                        (biphasic + exponential)*-1,
+                        biphasic + exponential
+                        )
+                  ) %>%
+        select(marker,diff) %>%
+        mutate(diff=ifelse(diff>=1.96,paste0(sprintf("%.2f",diff),"*"),sprintf("%.2f",diff)))
+        
+left_join(compare_df_loo,compare_df_diff)   %>% 
+        mutate(marker=str_replace_all(marker,"_"," ")) %>%
+        mutate(marker=str_replace(marker,"Luminex","MBA")) %>%
+        rename(`Biphasic - Exponential\nStandard Error Difference`=diff,
+               Marker=marker,
+               `Biphasic ELPD` = biphasic,
+                `Exponential ELPD` = exponential
+               ) %>%
+        flextable::flextable() %>%
+        flextable::align(j=2:4,part="all", align = "center" ) %>%
+        flextable::fontsize(size = 9,part="all") %>%
+        flextable::autofit()
+
+
+
+```
+
+\pagebreak
+
+
+### `r fig_nums("ind-trajectory-ogawaIgG")`
+
+Each facet shows the log10(RAU) measurements for individuals over time (points). Solid line indicates the median value of exponential decay model. Shaded area is the 95% credible interval.
+
+```{r ind-trajectory-ogawaIgG, eval=TRUE, fig.height=9}
+##  Individual-level antibody trajectories
+
+path <- "source/final_code/luminex_recommendation/generated_rds/decay_model_results/fits-compare/"
+OgawaIgG <- read_rds(paste0(path,"compare-fit-RAU_IgG_OgawaOSPBSA.rds"))
+OgawaIgA <- read_rds(paste0(path,"compare-fit-RAU_IgA_OgawaOSPBSA.rds"))
+OgawaIgM <- read_rds(paste0(path,"compare-fit-RAU_IgM_OgawaOSPBSA.rds"))
+CtxBIgG <- read_rds(paste0(path,"compare-fit-RAU_IgG_CtxB.rds"))
+CtxBIgA <- read_rds(paste0(path,"compare-fit-RAU_IgA_CtxB.rds"))
+CtxBIgM <- read_rds(paste0(path,"compare-fit-RAU_IgM_CtxB.rds"))
+
+
+panel_plot<- function(fitobj){
+
+        fit_thin<- fitobj$fits$exponential_5$fit %>% spread_draws(omega_ind[id_new],
+                                                                               lambda_ind[id_new],
+                                                                                D_ind[id_new],
+                                                                               delta
+        ) %>% filter(.draw %in% round(seq(1,max(.draw),length.out=1000)))
+
+
+        fit_summary <- fitobj$fits$exponential_5$dat$id_df %>%
+                expand(id_new,day=c(1,4,seq(5,1080,30))) %>%
+                left_join(fit_thin) %>%
+                left_join(distinct(fitobj$fits$exponential_5$dat$id_df,id_new,id)) %>%
+                mutate(predicted=ifelse(day<5,omega_ind,omega_ind+lambda_ind*exp(-delta*day))) %>%
+                mutate(predicted=
+                               case_when(
+                                       day < 5 ~ omega_ind,
+                                       day >=5 & day < D_ind ~ omega_ind+(day-5)/(D_ind-5)*lambda_ind,
+                                       day >= D_ind ~ omega_ind+lambda_ind*exp(-delta*(day-D_ind))
+                               )
+                ) %>%
+                group_by(day,id) %>%
+                summarize(median=median(predicted),
+                          lb=quantile(predicted,0.025),
+                          ub=quantile(predicted,0.975))
+
+        fit_summary %>%
+                ggplot()+
+                geom_line(aes(x=day,y=median),col="red")+
+                geom_ribbon(aes(x=day,ymin=lb,ymax=ub),alpha=0.2,
+                            fill="red"
+                            )+
+                geom_point(data=filter(casecon_analysis,
+                                       status=="Case",
+                                       full_test==fitobj$marker
+                ),
+                aes(x=day_actual,y=value)
+                )+
+                xlab("Days Post Infection")+
+                ylab("log10(1/RAU)")+
+                facet_wrap(.~str_pad(as.numeric(as.factor(id)),
+                           side="left",pad="0",width = 3))+
+                theme_cowplot()
+
+}
+
+
+
+panel_plot(OgawaIgG) + ggtitle("Ogawa OSP IgG")   
+```
+
+\pagebreak
+
+### `r fig_nums("ind-trajectory-ogawaIgA")`
+Each facet shows the log10(RAU) measurements for individuals over time (points). Solid line indicates the median value of exponential decay model. Shaded area is the 95% credible interval.
+
+```{r ind-trajectory-ogawaIgA, eval=TRUE, fig.height=9}
+panel_plot(OgawaIgA) + ggtitle("Ogawa OSP IgA")     
+```
+
+\pagebreak
+
+### `r fig_nums("ind-trajectory-ogawaIgM")`
+Each facet shows the log10(RAU) measurements for individuals over time (points). Solid line indicates the median value of exponential decay model. Shaded area is the 95% credible interval.
+
+```{r ind-trajectory-ogawaIgM, eval=TRUE, fig.height=9}
+panel_plot(OgawaIgM) + ggtitle("Ogawa OSP IgM")     
+```
+
+\pagebreak
+
+### `r fig_nums("ind-trajectory-ctIgG")`
+
+Each facet shows the log10(RAU) measurements for individuals over time (points). Solid line indicates the median value of exponential decay model. Shaded area is the 95% credible interval.
+
+```{r ind-trajectory-ctIgG, eval=TRUE, fig.height=9}
+panel_plot(CtxBIgG) + ggtitle("CT-B IgG")
+```
+
+\pagebreak
+
+### `r fig_nums("ind-trajectory-ctIgA")`
+
+Each facet shows the log10(RAU) measurements for individuals over time (points). Solid line indicates the median value of exponential decay model. Shaded area is the 95% credible interval.
+
+```{r ind-trajectory-ctIgA, eval=TRUE, fig.height=9}
+panel_plot(CtxBIgA) + ggtitle("CT-B IgA")   
+```
+
+\pagebreak
+
+### `r fig_nums("ind-trajectory-ctIgM")`
+
+Each facet shows the log10(RAU) measurements for individuals over time (points). Solid line indicates the median value of exponential decay model. Shaded area is the 95% credible interval.
+
+```{r ind-trajectory-ctIgM, eval=TRUE, fig.height=9}
+panel_plot(CtxBIgM) + ggtitle("CT-B IgM")                               
+```
+
+\pagebreak
+
+### `r tab_nums("decay-model-estimation")`
+
+The median estimate duration of half-life (in days) and the median estimate increase in fold-change for the average individual are shown below as well as in Figure 2. 95% Bayesian Credible Intervals are shown in parentheses.
+
+```{r decay-model-estimation, eval=TRUE}
+
+summary_df <-read_rds(
+            paste0("source/final_code/luminex_recommendation/generated_rds/decay_model_results/",
+                   "fits-compare/",
+                              "summary_df.rds"))  
+
+
+calc <- summary_df %>% filter(model=="exponential")%>%
+                        filter(str_detect(parameter,"foldchange|halflife")) %>%
+                        filter(!str_detect(parameter,"log")) %>% 
+                        select(marker,parameter,`X50.`,`X2.5.`,`X97.5.`) %>%
+                        #extract quantile
+                        gather(Quantile,value,-c(marker,parameter)) %>%
+                        mutate(Quantile=str_remove(Quantile,"X")) %>%
+                        mutate(Quantile=substr(Quantile,1,nchar(Quantile)-1)) %>%
+                        #calculate foldchange and halflife
+                        spread(parameter,value) %>%
+                        rename(avg_FC=foldchange) %>% 
+                        gather(measure,value,-c(marker,Quantile)) %>%
+                        # bring together measure and Quantile and spread
+                        mutate(measure_Quantile=paste(measure,Quantile,sep="_")) %>%
+                        select(-measure,-Quantile) %>%
+                        spread(measure_Quantile,value) %>%
+                        #get antigen and isotype
+                        mutate(antigen=str_remove(marker,"Luminex_")) %>%
+                        mutate(antigen=str_remove(antigen,"IgG_|IgM_|IgA_")) %>% 
+                        mutate(isotype=str_extract(marker,"IgG|IgM|IgA")) %>%
+                        left_join(antigen_df) %>%
+                        mutate(Antigen=ifelse(is.na(antigen_pretty),
+                                              antigen,as.character(antigen_pretty))) %>%
+                        mutate(Antigen=str_replace(Antigen,"_"," ")) 
+
+
+vib_calc <- filter(calc,str_detect(marker,"Vibriocidal")) %>%
+        select(-isotype) %>%
+        mutate(Marker=str_replace(marker,"_"," "))
+
+
+
+calc %>%       filter(str_detect(marker,"RAU")) %>%
+  mutate(halflife=paste0(round(halflife_50)," (",
+                                round(halflife_97.5),"-",
+                                round(halflife_2.5),")"),
+                avg_FC = paste0(sprintf("%.1f",avg_FC_50)," (",
+                                sprintf("%.1f",avg_FC_2.5),"-",
+                                sprintf("%.1f",halflife_97.5),")")
+                    ) %>% select(Isotype=isotype,
+                                 Antigen,
+                                 `Half Life (95% CI) in days`=halflife,
+                                 `Average Fold-Change (95% CI)`=avg_FC) %>%
+                    flextable::flextable() %>%
+                    flextable::merge_v(j="Isotype") %>%
+                    flextable::valign(j="Isotype",valign = "top") %>%
+                    flextable::fontsize(size = 9,part="all") %>%
+                    flextable::autofit()
+
+
+calc %>%       filter(!str_detect(marker,"NetMFI|RAU")) %>%
+          mutate(Antigen=str_replace(Antigen,"_"," ")) %>%
+  mutate(halflife=paste0(round(halflife_50)," (",
+                                round(halflife_97.5),"-",
+                                round(halflife_2.5),")"),
+                avg_FC = paste0(sprintf("%.1f",avg_FC_50)," (",
+                                sprintf("%.1f",avg_FC_2.5),"-",
+                                sprintf("%.1f",halflife_97.5),")")
+                    ) %>% select(
+                                 Marker=Antigen,
+                                 `Half Life (95% CI) in days`=halflife,
+                                 `Average Fold-Change (95% CI)`=avg_FC) %>%
+                    flextable::flextable() %>%
+                    # flextable::merge_v(j="Isotype") %>%
+                    # flextable::valign(j="Isotype",valign = "top") %>%
+                    flextable::fontsize(size = 9,part="all") %>%
+                    flextable::autofit()
+
+```
+
+\pagebreak
+
+### `r fig_nums("spaghetti-agegroup")`
+
+```{r spaghetti-agegroup, eval=TRUE}
+
+#these covariate graphs should be included in the supplement
+
+analysisData$RAU_data$long_data %>% filter(status =="Case") %>%
+                filter(test_type=="Luminex") %>%
+                filter(antigen  %in% O1_antigens) %>%
+                left_join(antigen_df) %>%
+                mutate(`Age Group`=ifelse(age<10,"<10 years","10+ years")) %>%
+                mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM"))) %>%
+                ggplot(aes(x=day_actual,y=value,col=`Age Group`))+
+                        geom_line(aes(group=id),alpha=0.3)+
+                        geom_smooth(se=FALSE,lty=1)+
+                        facet_grid(isotype~antigen_pretty,scales = "free_y")+
+                        ylab("log10(1/RAU)")+
+                        
+                        scale_x_continuous(trans="sqrt",breaks=c(2,30,365,900))+
+                        theme_bw()+
+                        theme(panel.grid.minor = element_blank(),
+                             panel.grid.major.x = element_blank(),
+                             legend.position = "bottom"
+                              )+
+                        xlab("Days Post Infection")
+
+
+```
+
+\pagebreak
+
+### `r fig_nums("spaghetti-serotype")`
+
+```{r spaghetti-serotype, eval=TRUE}
+
+
+analysisData$RAU_data$long_data %>% filter(status =="Case") %>%
+                filter(test_type=="Luminex") %>%
+                filter(antigen  %in% O1_antigens) %>%
+                left_join(antigen_df) %>%
+                mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM"))) %>%
+                ggplot(aes(x=day_actual,y=value,col=culture))+
+                        geom_line(aes(group=id),alpha=0.3)+
+                        geom_smooth(se=FALSE,lty=1)+
+                        facet_grid(isotype~antigen_pretty,scales = "free_y")+
+                        ylab("log10(1/RAU)")+
+                        
+                        scale_x_continuous(trans="sqrt",breaks=c(2,30,365,900))+
+                        theme_bw()+
+                        theme(panel.grid.minor = element_blank(),
+                             panel.grid.major.x = element_blank(),
+                             legend.position = "bottom"
+                              )+
+                        xlab("Days Post Infection")
+
+
+
+
+
+```
+
+
+\pagebreak
+
+
+### `r tab_nums("decay-model-covariates")`
+
+The median relative baseline value, median relative fold-change value, and median difference in days of half-life are reported. 95% Bayesian Credible intervals are shown in parentheses. Reference categories include male, non-O blood group, Inaba, and 10+ years old. 
+
+```{r decay-model-covariates, eval=TRUE}
+
+# summary_cov_df <- read_rds(
+#            paste0("source/final_code/luminex_recommendation/generated_rds/decay_model_results/",
+#                    # Sys.Date(),
+#                    "2021-09-29-covariates/",
+#                                # Sys.Date(),
+#                    "2021-09-29-summary_cov_df.rds"))
+
+summary_cov_df <- read_rds(
+           paste0("source/final_code/luminex_recommendation/generated_rds/decay_model_results/covariates/summary_cov_df.rds"))
+
+
+#Fold change difference table
+FC_diff_table<- summary_cov_df %>% filter(str_detect(parameter,"baseline_ratio|foldchange_ratio")) %>%
+                select(marker,covariate,parameter,`X2.5.`,`X50.`,`X97.5.`) %>%
+                gather(quantile,value,-c(marker,covariate,parameter)) %>%
+                # mutate(value=10^value) %>%
+                spread(quantile,value) %>% 
+                mutate(CI =paste0(signif(`X50.`,3)," (",
+                       signif(`X2.5.`,3),"-",
+                       signif(`X97.5.`,3),")")) %>%
+                mutate(CI=ifelse((`X2.5.`<1)+(`X97.5.`>1)==2,CI,paste0(CI,"*"))) %>%
+                select(marker,covariate,parameter,CI) %>%
+                spread(parameter,CI)
+
+#half life change difference table
+HL_diff_table <- summary_cov_df %>% filter(str_detect(parameter,"halflife_diff")) %>%
+                select(marker,covariate,parameter,`X2.5.`,`X50.`,`X97.5.`) %>%
+                mutate(CI =paste0(round(`X50.`)," (",
+                       round(`X2.5.`),"-",
+                       round(`X97.5.`),")")) %>%
+                mutate(CI=ifelse(`X2.5.`*`X97.5.`>0,paste0(CI,"*"),CI)) %>%
+                select(marker,covariate,parameter,CI) %>%
+                spread(parameter,CI)
+
+FC_diff_table %>% left_join(HL_diff_table) %>% 
+          mutate(Isotype=str_extract(marker,"Ig[G|A|M]")) %>%
+          mutate(Assay=str_extract(marker,"RAU|ELISA|Vibriocidal_Ogawa|Vibriocidal_Inaba")) %>%
+          mutate(Antigen=str_remove_all(marker,"RAU_Ig[G|A|M]_|ELISA_|_Ig[G|A|M]|Vibriocidal_Ogawa|Vibriocidal_Inaba")) %>%
+        mutate(Assay=str_replace(Assay,"_","\n")) %>%
+        mutate(Assay=str_replace(Assay,"Luminex","MBA")) %>%
+        mutate(Antigen=str_remove(Antigen,"BSA")) %>%
+        mutate(Antigen=str_replace(Antigen, "OSP"," OSP")) %>%
+        mutate(Marker=paste (Assay,Isotype,Antigen)) %>%
+        mutate(Marker=str_remove(Marker,"NA")) %>%
+        arrange(Assay,Isotype,Antigen) %>%
+          select(Marker,
+                 Covariate=covariate,
+                 `Ratio of\nBaseline Values`=baseline_ratio,
+                 `Ratio of\nFold-Change Values`=foldchange_ratio,
+                 `Difference in days\nof Half-Life`=halflife_diff,
+                 # `Ratio of\nHalf-lives`=halflife_ratio
+
+                 ) %>% 
+        flextable::flextable() %>%
+        flextable::merge_v(j=c("Marker")) %>%
+        flextable::valign(j=c("Marker"),valign = "top") %>%
+        flextable::highlight(j = "Ratio of\nBaseline Values", i = ~ str_detect(`Ratio of\nBaseline Values`,"\\*"), color = "gray90") %>%
+        flextable::highlight(j = "Ratio of\nFold-Change Values", i = ~ str_detect(`Ratio of\nFold-Change Values`,"\\*"), color = "gray90") %>%
+        flextable::highlight(j = "Difference in days\nof Half-Life", i = ~ str_detect(`Difference in days\nof Half-Life`,"\\*"), color = "gray90") %>%
+        # flextable::highlight(j = "Ratio of\nHalf-lives", i = ~ str_detect(`Ratio of\nHalf-lives`,"\\*"), color = "gray90") %>%
+        flextable::fontsize(x=.,size = 8, part = "all") %>%
+        flextable::autofit()
+
+
+
+```
+
+
+\pagebreak
+
+### `r fig_nums("fig2-netmfi")`
+
+Each point indicates the median estimate of the average individual fold-rise from baseline to peak (y-value) and the median estimate of the half-life (x-value) for exponential decay univariate models. Marginal 95% credible intervals are shown as lines. Model estimates for the vibriocidal assay are shown for reference and are identical across panels. 
+
+```{r fig2-netmfi, eval=TRUE, fig.height = 5}
+
+sum_stat_df <- read_rds("source/final_code/luminex_recommendation/generated_rds/decay_model_results/fits-compare/summary_df.rds") %>% 
+      filter(model=="exponential") 
+
+# sum_stat_df <- summary_df %>%      filter(model=="exponential")
+
+
+calc <- sum_stat_df %>% #filter(!str_detect(marker,"ELISA")) %>%
+                        filter(str_detect(parameter,"foldchange|halflife")) %>%
+                        select(marker,parameter,`X50.`,`X2.5.`,`X97.5.`) %>%
+                        #extract quantile
+                        gather(Quantile,value,-c(marker,parameter)) %>%
+                        mutate(Quantile=str_remove(Quantile,"X")) %>%
+                        mutate(Quantile=substr(Quantile,1,nchar(Quantile)-1)) %>%
+                        #calculate foldchange and halflife
+                        spread(parameter,value) %>%
+                        # mutate(#halflife=log(2)/delta,
+                        #        # avg_FC=ifelse(str_detect(marker,"Luminex"),
+                        #        #               10^mu_lambda,
+                        #        #               2^mu_lambda)
+                        # ) %>% select(-foldchange) %>%
+                        gather(measure,value,-c(marker,Quantile)) %>%
+                        # bring together measure and Quantile and spread
+                        mutate(measure_Quantile=paste(measure,Quantile,sep="_")) %>%
+                        select(-measure,-Quantile) %>%
+                        spread(measure_Quantile,value) %>%
+                        #get antigen and isotype
+                        mutate(antigen=str_remove(marker,"Luminex_|NetMFI_|RAU_")) %>%
+                        mutate(antigen=str_remove(antigen,"IgG_|IgM_|IgA_")) %>%
+                        mutate(isotype=str_extract(marker,"IgG|IgM|IgA")) %>%
+                        left_join(antigen_df) %>%
+                        rename(Antigen=antigen_pretty)
+
+
+vib_calc <- filter(calc,str_detect(marker,"Vibriocidal")) %>%
+        select(-isotype) %>%
+        mutate(Marker=str_replace(marker,"_"," "))
+
+
+
+calc %>%
+      filter(str_detect(marker,"NetMFI")) %>%
+      # filter(!str_detect(marker,"VCC|Sialidase|CTH")) %>%
+      filter(antigen %in% O1_antigens) %>%
+      mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM"))) %>%
+                ggplot(aes(x=halflife_50,foldchange_50))+
+                        #luminex
+                        geom_point(aes(col=Antigen))+
+                        geom_linerange(aes(ymin=foldchange_2.5,ymax=foldchange_97.5,col=Antigen))+
+                        geom_linerange(aes(xmax=halflife_2.5,xmin=halflife_97.5,col=Antigen))+
+                        #vibriocidal
+                        geom_point(data=vib_calc,aes(shape=Marker))+
+                        geom_linerange(data=vib_calc,aes(ymin=foldchange_2.5,ymax=foldchange_97.5,
+                                                         lty=Marker))+
+                        geom_linerange(data=vib_calc,aes(xmax=halflife_2.5,xmin=halflife_97.5,
+                                                         lty=Marker))+
+                        scale_color_brewer(palette = "Set2")+
+                        facet_wrap(.~isotype)+
+                        theme_cowplot()+
+                        scale_y_continuous("Average fold-change",trans="log2",#limits=c(1,128),
+                                           breaks = c(2,8,32,128))+
+                        scale_x_continuous("Half-life (days)",trans="log2",
+                                           breaks=c(1,7,30,90,180,365),
+                                           #limits = c(1,365)
+                                           )+
+  geom_hline(yintercept=1,lty=2,col="grey")+
+        theme(axis.text.x = element_text(angle=45,hjust=1))
+
+        
+
+
+
+```
+
+
+\pagebreak
+
+### `r fig_nums("marker-importance")`
+
+Permutation importance is shown along the x-axis for 21 predictors of random forest models containing multiplex bead assay (MBA) markers (except for those binding to CT-H, LT-H, and LT-B), age, sex, and blood-type.
+
+
+```{r marker-importance, fig.height = 10, eval=TRUE}
+
+
+color_variable <- analysisData$new_long_data %>% filter(unit=="log10(1/RAU)") %>%
+                filter(antigen %in% c("CtxB","OgawaOSPBSA","InabaOSPBSA")) %>%
+                # filter(!full_test %in% c("Luminex_IgM_CtxB")) %>%
+                distinct(full_test) %>% pull(full_test) %>%
+                c("age")
+
+
+importance_df <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/3_importance_df.rds") %>%
+        filter(predictors=="RAU Limited")
+
+importance_plot_df <- importance_df %>%
+                filter(end_window %in% c(45,120,200,300)) %>%
+                mutate(pretty_marker=str_remove(marker,"RAU_")) %>%
+                mutate(pretty_marker=str_replace(pretty_marker,"_"," ")) %>%
+                mutate(pretty_marker=str_replace(pretty_marker,"OSPBSA"," OSP")) %>%
+                mutate(pretty_marker=str_replace(pretty_marker,"CtxB","CT-B")) %>%
+                mutate(pretty_marker=ifelse(pretty_marker=="age","Age",pretty_marker)) %>%
+        
+                mutate(other_marker=ifelse(marker %in% color_variable,
+                                                     pretty_marker,"Other")) %>%
+                group_by(end_window) %>%
+                  arrange(end_window,-importance) %>%
+                  mutate(rank=1:n()) 
+
+
+imp45<- importance_plot_df %>% filter(end_window==45) %>%
+                ggplot(aes(y=reorder(pretty_marker,rank),x=importance,fill=other_marker))+
+                     geom_col()+
+                        facet_wrap(.~end_window)+
+                        scale_fill_manual("Predictor",values=c("black",
+                                                    pals::brewer.reds(5)[3:5],
+                                                    pals::brewer.greens(5)[3:5],
+                                                    pals::brewer.blues(5)[3:5]
+                                                    ,"lightgrey"))+
+                        theme_bw()+
+                        theme(legend.position = "bottom",
+                              axis.title.y= element_blank()
+                              )+
+                        xlab("Permutation\nImportance")
+
+imp120<- importance_plot_df %>% filter(end_window==120) %>%
+                ggplot(aes(y=reorder(pretty_marker,rank),x=importance,fill=other_marker))+
+                     geom_col()+
+                        facet_wrap(.~end_window)+
+                        scale_fill_manual("Predictor",values=c("black",
+                                                    pals::brewer.reds(5)[3:5],
+                                                    pals::brewer.greens(5)[3:5],
+                                                    pals::brewer.blues(5)[3:5]
+                                                    ,"lightgrey"))+
+                        theme_bw()+
+                        theme(legend.position = "bottom",
+                              axis.title.y= element_blank())+
+                        xlab("Permutation\nImportance")
+
+imp200<- importance_plot_df %>% filter(end_window==200) %>%
+                ggplot(aes(y=reorder(pretty_marker,rank),x=importance,fill=other_marker))+
+                     geom_col()+
+                        facet_wrap(.~end_window)+
+                        scale_fill_manual("Predictor",values=c("black",
+                                                    pals::brewer.reds(5)[3:5],
+                                                    pals::brewer.greens(5)[3:5],
+                                                    pals::brewer.blues(5)[3:5]
+                                                    ,"lightgrey"))+
+                        theme_bw()+
+                        theme(legend.position = "bottom",
+                              axis.title.y= element_blank())+
+                        xlab("Permutation\nImportance")
+
+imp300<- importance_plot_df %>% filter(end_window==300) %>%
+                ggplot(aes(y=reorder(pretty_marker,rank),x=importance,fill=other_marker))+
+                     geom_col()+
+                        facet_wrap(.~end_window)+
+                        scale_fill_manual("Predictor",values=c("black",
+                                                    pals::brewer.reds(5)[3:5],
+                                                    pals::brewer.greens(5)[3:5],
+                                                    pals::brewer.blues(5)[3:5]
+                                                    ,"lightgrey"))+
+                        theme_bw()+
+                        theme(legend.position = "bottom",
+                              axis.title.y= element_blank())+
+                        xlab("Permutation\nImportance")
+
+
+
+
+
+
+
+
+#bring in data.frame
+
+all_cv_df <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/1_scan_cvPred_df.rds")%>%
+        filter(predictors=="RAU Limited")
+
+# for each window and weighting, calculate the sensitivities and specificities
+limited <- filter(all_cv_df,end_window==45,weighted==TRUE)
+
+library(pROC)
+roc_df <- data.frame()
+
+
+for (W in c(FALSE, TRUE)){
+        for (d in c(45,120,200,300)){
+                
+                tmp_df <- filter(all_cv_df,end_window==d,weighted==W)
+                tmp_roc <- roc(tmp_df,response=outcome,predictor=prediction)
+                roc_df <- bind_rows(roc_df,
+                                    data.frame(
+                                            sens=tmp_roc$sensitivities,
+                                            spec=tmp_roc$specificities,
+                                            weighted=W,
+                                            end_window=d
+                                            
+                                    ))
+                
+                
+        }
+}
+
+
+
+
+plot_grid(
+                roc_df %>% arrange(spec,sens) %>% ggplot(aes(x=1-spec,y=sens))+
+                                geom_line(aes(col=factor(weighted),
+                                               ))+
+                        facet_grid(.~end_window)+
+                        theme_bw()+
+                        theme(legend.position = "bottom")+
+                        xlab("1-Specificity")+
+                        ylab("Sensitivity")+
+                        scale_color_viridis_d("Weighted")
+                        ,
+                
+plot_grid(imp45+theme(legend.position = "none",
+                      axis.text.x = element_text(angle=45,hjust=1)
+                      ),
+          imp120+theme(legend.position = "none",
+                      axis.text.x = element_text(angle=45,hjust=1)),
+          imp200+theme(legend.position = "none",
+                      axis.text.x = element_text(angle=45,hjust=1)),
+          imp300+theme(legend.position = "none",
+                      axis.text.x = element_text(angle=45,hjust=1)),
+          nrow=1), #%>%
+        # plot_grid(ggpubr::get_legend(imp45),ncol=1,rel_heights = c(5,1)), 
+        nrow=2,rel_heights = c(1.5,2)
+        )
+
+
+
+
+```
+
+
+\pagebreak
+
+### `r fig_nums("superlearner")`
+
+Models were fit to 18 MBA markers and 3 demographic variables (age, sex, and blood type).  The ensemble model was created using the R package SuperLearner. Four different types of models were combined into the ensemble: Random Forest models (ranger), Lasso and Elastic-Net Regularized Generalized Linear Models (glmnet), Bayesian Additive Regression Trees (bartMachine), and Extreme Gradient Boosting (xgboost). All models were unweighted.
+
+
+```{r superlearner, eval=TRUE}
+
+cvAUC_SL <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/2_superL_cvAUC_df.rds")
+
+cvAUC_SL %>% ggplot(aes(x=factor(end_window),y=cvAUC,col=Model))+
+                geom_point(position = position_dodge2(width=0.1))+
+                geom_linerange(aes(ymin=ci1,ymax=ci2),
+                               position = position_dodge2(width=0.1))+
+                theme_bw()+
+                ylim(c(0.7,1))+
+                xlab("Infection Window (days)")+
+                theme(panel.grid.minor.y = element_blank())+
+                facet_wrap(.~measure)
+
+```
+
+
+\pagebreak
+
+### `r fig_nums("fig3-netmfi")`
+
+Estimates of mean cvAUC (10-fold) and 95% confidence interval are shown for weighted and non-weighted models between 50- and 600-day infection windows at 10-day intervals (A). Rug plot shows the day of collection of samples from cases used in training models. Samples collected under 5 days since infection, over 600 days since infection, or from household contacts are not shown. For each infection window of weighted models, the rankings of predictors by their importance are shown on the y-axis (B). Colors of lines are unique to each predictor.
+
+```{r fig3-netmfi, eval=TRUE}
+
+#bring in cvAUC dataframe
+cvAUCdf <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/1_scan_cvAUC_df.rds") %>%
+        filter(predictors %in% c( "Net MFI Limited")) %>%
+        # mutate(predictors=str_remove(predictors," Limited")) %>%
+        mutate(Data=ifelse(weighted,"Weighted","Unweighted")) 
+
+
+#plot the cvAUC scan across windows
+p_tv_cvAUC <- cvAUCdf  %>% 
+        filter(end_window<=600) %>%
+        ggplot(aes(x=end_window,y=cvAUC,col=Data,fill=Data))+
+                geom_line()+
+                geom_ribbon(aes(ymin=ci1,ymax=ci2),alpha=0.1,col=NA)+
+                geom_rug(data=wide_analysis %>% 
+                                 filter(day_actual<600,
+                                        day>2,
+                                        status=="Case"
+                                        ),
+                         aes(x=day_actual),inherit.aes = FALSE,alpha=0.3)+
+                theme_cowplot()+
+                scale_x_continuous("Infection Window (Days)",
+                                   breaks=c(30,90,180,270,365,540, 600),
+                                           limits = c(5,600)
+                                   )+
+                 scale_y_continuous(breaks=c(0.8,0.85,0.9,0.95,1),
+                                    limits=c(0.8,1)
+                                    )+
+                theme(legend.position="bottom")
+
+
+
+
+#bring in importance dataframe (Part B)
+importance_df <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/3_importance_df.rds") %>%
+                        # limit to 21 and no weighting
+                        filter(predictors=="Net MFI Limited") %>%
+                        filter(weighted== TRUE)
+
+
+#define which variables you want to have a color
+color_variable <- importance_df %>% 
+                filter(str_detect(marker,"CtxB|OgawaOSPBSA|InabaOSPBSA")) %>%
+                distinct(marker) %>% pull(marker) %>%
+                c("age",.) 
+
+
+#create data frame that makes names look nice and sets rankings
+plot_df <- importance_df %>%  
+                mutate(isotype= str_extract(marker,"Ig[G|A|M]")) %>%
+                mutate(pretty_marker=str_remove(marker,"NetMFI_Ig[A|G|M]_")) %>%
+                mutate(pretty_marker=str_replace(pretty_marker,"OSPBSA"," OSP")) %>%
+                mutate(pretty_marker=str_replace(pretty_marker,"CtxB","CT-B")) %>%
+                mutate(pretty_marker=
+                               case_when(
+                                       str_detect(marker,"Luminex|NetMFI|RAU") ~ paste0(pretty_marker," ",isotype),
+                                   marker=="age" ~ "Age",
+                                   marker=="sex" ~"Sex",
+                                   marker=="blood" ~"Blood Type"
+                               )) %>%
+                mutate(other_marker=ifelse(marker %in% color_variable,
+                                                     pretty_marker,"Other")) %>%
+                group_by(end_window) %>%
+                  arrange(end_window,-importance) %>%
+                  mutate(rank=1:n())
+
+#identify other markers
+othermarker_levels <- plot_df  %>% filter(other_marker!="Other") %>%distinct(other_marker,isotype) %>% arrange(isotype,other_marker) %>% pull(other_marker) %>% unique() %>% c("Other")
+
+#add colors based on what the first ranking was
+lastrank <- plot_df %>% ungroup()%>%
+                filter(end_window==min(end_window)) %>%
+                arrange(-importance) %>%
+                left_join(data.frame(other_marker=othermarker_levels,
+                                     color=c(
+                                                    pals::brewer.reds(5)[3:5],
+                                                    pals::brewer.greens(5)[3:5],
+                                                    pals::brewer.blues(5)[3:5],
+                                                    "black","grey")
+                                     ))
+
+#make the rank plot
+rank_plot<-  plot_df %>%
+                mutate(other_marker=factor(other_marker,levels=othermarker_levels))%>%
+                filter(end_window<=600) %>%
+                ggplot(aes(y=rank,x=end_window,col=other_marker,
+                           group=marker))+
+                     geom_line(aes(alpha=other_marker))+
+                        scale_color_manual("Predictor",values=c(
+                                                    pals::brewer.reds(5)[3:5],
+                                                    pals::brewer.greens(5)[3:5],
+                                                    pals::brewer.blues(5)[3:5],
+                                                    "black","grey"))+
+                        scale_alpha_manual("Predictor",values=c(rep(1,10),0.5))+
+                        theme_cowplot()+
+                        scale_x_continuous("Infection Window (Days)",breaks = 
+                                                   c(30,90,180,270,365,540,600),
+                                           limits = c(5,max(600))
+                                           )+
+                      
+                        scale_y_continuous("Predictor",breaks=1:21,
+                                           labels=lastrank$pretty_marker,
+                                           trans="reverse",
+                                           sec.axis = dup_axis(name=
+                                                           "Importance Ranking",
+                                                        labels= 1:21
+                                                           )
+                                           )+
+                        theme(legend.position = "none",
+                              axis.text.y.left = element_text(colour=lastrank$color)
+                              )
+
+
+#combine plots together
+plot_grid(p_tv_cvAUC+theme(legend.position="bottom"),
+          rank_plot,
+          ncol=1,align="v",
+          rel_heights = c(1,1.5),
+          labels=c("A","B")
+          )
+
+
+```
+
+
+\pagebreak
+
+### `r tab_nums("multi-marker-cvAUC")`
+
+Random forest models were fit using a the specified marker set and individual level factors including age, sex, and blood group. Mean and 95% confidence intervals for cvAUC are reported.
+
+
+```{r multi-marker-cvAUC, eval=TRUE}
+# marker_set_names <- c( "Vibriocidal &\nELISA Markers","Vibriocidal\nMarkers","ELISA\nMarkers","All MBA\nMarkers","IgG MBA\nMarkers", "IgA MBA\nMarkers","IgM MBA\nMarkers")
+
+marker_cvAUC_list <- read_rds(
+           "source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/4_compare_cvAUC_markers_list.rds"
+          )  
+
+
+
+cv_marker_df <- data.frame()
+times <- c(45,120,200,300)
+
+for(k in names(marker_cvAUC_list)){
+  for(j in as.character(times)){
+        cv_marker_df <- bind_rows(cv_marker_df,
+                                   marker_cvAUC_list[[k]][[j]][[4]] %>%
+                                          mutate(
+                                  model=k)
+                                  )
+  }
+}
+        
+        
+        
+
+#make plot to compare overall models
+cv_marker_df %>% 
+              # mutate(model=str_replace(model,"Luminex","MBA")) %>%
+              mutate(`Marker Set`= factor(model)) %>%
+              mutate(Window= factor(end_window,labels =c("45-day","120-day","200-day","300-day")) ) %>% 
+   mutate(CI=paste0(sprintf("%.2f",cvAUC)," (",
+                   sprintf("%.2f",ci1),"-",
+                   sprintf("%.2f",ci2),")")) %>%
+  select(`Marker Set`,CI,Window) %>%
+  spread(Window,CI) %>%
+  flextable::flextable() %>%
+  flextable::fontsize(size = 9,part="all") %>%
+  flextable::autofit()
+
+  
+
+# 
+# traditional_predictors <- casecon_analysis %>%
+#                       filter(test_type == "Vibriocidal"|
+#                                (test_type=="ELISA" &
+#                                isotype %in% c("IgG","IgA"))
+#                                ) %>%
+#                         distinct(full_test) %>%
+#                         pull(full_test) %>%
+#                         c("age","sex","blood")
+# 
+# vibonly_predictors <- casecon_analysis %>% filter(test_type=="Vibriocidal") %>%
+#                         distinct(full_test) %>%
+#                         pull(full_test) %>%
+#                         c("age","sex","blood")
+# 
+# ELISA_predictors <- casecon_analysis %>%
+#                       filter(
+#                                (test_type=="ELISA" &
+#                                isotype %in% c("IgG","IgA"))
+#                                ) %>%
+#                         distinct(full_test) %>%
+#                         pull(full_test) %>%
+#                         c("age","sex","blood")
+# 
+# # get the luminex predictors
+# key_antigens <- c("OgawaOSPBSA","InabaOSPBSA","CtxB","Sialidase","VCC","TcpA")
+# 
+# 
+# Luminex_predictors <- casecon_analysis %>% filter(test_type=="Luminex") %>%
+#                         filter(antigen %in% key_antigens) %>%
+#                         distinct(full_test) %>%
+#                         pull(full_test) %>%
+#                         c("age","sex","blood")
+# 
+# 
+# Luminex_IgG_predictors <- casecon_analysis %>% filter(test_type=="Luminex") %>%
+#                         filter(isotype=="IgG") %>%
+#                         filter(antigen %in% key_antigens) %>%
+#                         distinct(full_test) %>%
+#                         pull(full_test) %>%
+#                         c("age","sex","blood")
+# 
+# Luminex_IgA_predictors <- casecon_analysis %>% filter(test_type=="Luminex") %>%
+#                         filter(isotype=="IgA") %>%
+#                         filter(antigen %in% key_antigens) %>%
+#                         distinct(full_test) %>%
+#                         pull(full_test) %>%
+#                         c("age","sex","blood")
+# 
+# Luminex_IgM_predictors <- casecon_analysis %>% filter(test_type=="Luminex") %>%
+#                         filter(isotype=="IgM") %>%
+#                         filter(antigen %in% key_antigens) %>%
+#                         distinct(full_test) %>%
+#                         pull(full_test) %>%
+#                         c("age","sex","blood")
+# #
+# # IgG_varimp180 <- cforest_vimp(make_formula("inf_180", Luminex_IgG_predictors),
+# #                               wide_analysis %>% getTimeBasedWeights(end_window = 180),
+# #                               ntree=tree_param, weighted = TRUE
+# #                               )
+# #
+# #
+# # saveRDS(IgG_varimp180,paste0("source/final_code/luminex_recommendation/generated_rds/",Sys.Date(),"_",tree_param,"_IgG180_importance.rds"))
+# 
+# # IgG_varimp180 <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/2021-08-26_5000_IgG180_importance.rds")
+# 
+# 
+# # IgG_varimp180$importance %>%
+# #       mutate(antigen=str_remove(Biomarker,"Luminex_")) %>%
+# #       mutate(antigen=str_remove(antigen,"IgA_|IgM_|IgG_")) %>%
+# #       ggplot(aes(x=Cond_Importance,y=reorder(antigen,Cond_Importance)))+
+# #       geom_col()+
+# #       ylab("Antigen")+
+# #       xlab("Conditional Importance")
+# 
+# 
+# # First show which isotype is most important
+# marker_set <- list(
+#                       `Vibriocidal &\nELISA Markers`=traditional_predictors,
+#                       `Vibriocidal\nMarkers`=vibonly_predictors,
+#                       `ELISA\nMarkers`=ELISA_predictors,
+#                      `All MBA\nMarkers`=Luminex_predictors,
+#                      `IgG MBA\nMarkers`=Luminex_IgG_predictors,
+#                      `IgA MBA\nMarkers`=Luminex_IgA_predictors,
+#                      `IgM MBA\nMarkers`=Luminex_IgM_predictors
+#                      )
+
+
+
+```
+
+\pagebreak
+
+### `r tab_nums("panel-select")`
+
+Random forest models were using a reduced panel of MBA IgG markers and individual level factors including age, sex, and blood group. Mean and 95% confidence intervals for cvAUC are reported.
+
+```{r panel-select, eval=TRUE}
+
+compareAntigen_cvAUC <- read_rds(
+          "source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/5_cvAUC_combo.rds"
+          )  %>%
+        filter(type=="RAU") %>%
+        filter(isotype=="IgG")
+
+
+#make plot to compare antigens
+compareAntigen_cvAUC_plotdf<- compareAntigen_cvAUC %>%
+          arrange(end_window) %>%
+          group_by(end_window) %>%
+          mutate( panel = added,
+                  panel= str_remove(panel,"RAU_IgG_"),
+                  panel= str_replace(panel,"OSPBSA"," OSP"),
+                  panel =ifelse(panel=="CtxB","CT-B",panel)
+                  ) %>%
+        mutate(panel=ifelse(panel=="CT-B",panel,paste("+",panel))) %>%
+        ungroup()
+
+
+
+compareAntigen_cvAUC_df<- compareAntigen_cvAUC_plotdf %>%
+          mutate(
+                 Window=paste0(end_window,"-day"),
+                 Window=factor(Window,levels=c("45-day","120-day","200-day","300-day"))
+                 ) %>%
+          mutate(`MBA Panel for IgG` = factor(panel,levels= distinct(compareAntigen_cvAUC_plotdf,panel) %>% pull(panel))) %>%
+          filter(`MBA Panel for IgG` != "+ Demographics Only") 
+
+
+
+compareAntigen_cvAUC_df %>% 
+   mutate(CI=paste0(sprintf("%.2f",cvAUC)," (",
+                   sprintf("%.2f",ci1),"-",
+                   sprintf("%.2f",ci2),")")) %>%
+  select(`MBA Panel for IgG`,CI,Window) %>%
+  spread(Window,CI) %>%
+  flextable::flextable() %>%
+  flextable::fontsize(size = 9,part="all") %>%
+  flextable::autofit()
+
+
+
+```
+
+\pagebreak
+
+### `r fig_nums("fig4-netmfi")`
+
+Random forest models were fit using a specified marker set and individual level factors including age, sex, and blood type (A). Estimated mean and 95% confidence intervals for cvAUC are reported. Models fit to reduced panels of IgG MBA markers are shown (B). The order of how antigens were added was determined by the variable importance when fitting a model with only IgG MBA markers.
+
+```{r fig4-netmfi, fig.height = 5, eval=TRUE}
+
+#bring in the marker sets defined for part A
+marker_set <- read_rds(
+          paste0("source/final_code/luminex_recommendation/generated_rds/random_forest_results/",
+                 "cvAUC_importance/4_marker_set.rds")
+)
+
+
+figure_set <- names(marker_set)[c(1:7)]
+
+
+cv_marker_df <- read_rds(
+          paste0( "source/final_code/luminex_recommendation/generated_rds/random_forest_results/",
+                 "cvAUC_importance/4_compare_cvAUC_markers_df.rds")
+          )
+
+#make plot to compare overall models
+cv_marker_plot <- cv_marker_df %>%
+                filter(model %in% figure_set) %>%
+              mutate(model=str_replace(model,"NetMFI","MBA")) %>%
+              mutate(`Marker Set`= factor(model,levels=str_replace(figure_set,"NetMFI","MBA")) ) %>%
+                mutate(Window=paste0(end_window,"-day")) %>%
+              mutate(Window= factor(Window,levels=c("45-day","120-day","200-day","300-day")) ) %>%
+
+              ggplot()+
+                  geom_point(aes(y=cvAUC,x=`Marker Set`,col=Window),position = position_dodge(width = 0.3))+
+                  geom_linerange(aes(x=`Marker Set`,col=Window,
+                                   ymin=ci1,ymax=ci2),position = position_dodge(width = 0.3))+
+                  scale_y_continuous(limits=c(0.7,1))+
+                  scale_color_brewer(palette ="Set2")+
+
+                  theme_bw()+
+                  theme(axis.text.x = element_text(angle=45,hjust=1),
+                        panel.grid.minor = element_blank(),
+                        panel.grid.major.x = element_blank())
+
+
+# Figure out which antigens are most important for IgG
+compareAntigen_cvAUC <- read_rds(
+          "source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/5_cvAUC_combo.rds"
+          )  %>%
+        filter(isotype=="IgG",type=="NetMFI")
+
+compareAntigen_cvAUC_plot<- compareAntigen_cvAUC %>%
+          arrange(end_window) %>%
+          group_by(end_window) %>%
+          mutate( 
+                  panel= str_remove(added,"NetMFI_IgG_"),
+                  panel= str_replace(panel,"OSPBSA"," OSP"),
+                  panel =ifelse(panel=="CtxB","CT-B Only",panel)
+                  ) %>%
+        mutate(panel=ifelse(panel=="CT-B Only",panel,paste("+",panel))) %>%
+        ungroup() %>%
+          mutate(
+                 Window=paste0(end_window,"-day"),
+                 Window=factor(Window,levels=c("45-day","120-day","200-day","300-day"))
+                 ) %>%
+          mutate(`MBA Panel for IgG` = factor(panel,levels= distinct(.,panel) %>% pull(panel))) %>%
+              ggplot(aes(x=`MBA Panel for IgG`,col=Window))+
+                  geom_point(aes(y=cvAUC),position = position_dodge(width = 0.3))+
+                  geom_linerange(aes(ymin=ci1,ymax=ci2),position = position_dodge(width = 0.3))+
+                  scale_y_continuous(limits=c(0.7,1))+
+                  scale_color_brewer(palette ="Set2")+
+                  theme_bw()+
+                  theme(axis.text.x =  element_text(angle=45, hjust = 1),
+                        panel.grid.minor = element_blank(),
+                        panel.grid.major.x = element_blank()
+                        )#+
+                  # annotate("rect", xmin = 2.5, xmax = 3.5, ymin = 0.7, ymax = 1,
+                  #          col="black",fill=NA,lty=2)
+
+
+
+
+
+b_legend <- ggpubr::get_legend(
+                        cv_marker_plot +
+                        theme(legend.position = "bottom"))
+
+r2 <- plot_grid(
+        plot_grid(cv_marker_plot+
+            theme(legend.position = "none"),
+          compareAntigen_cvAUC_plot+
+            theme(legend.position = "none"),align="h",
+          labels=c("A","B")
+          ), b_legend ,ncol=1, rel_heights = c(10,1)
+        )
+
+r2
+
+```
+
+
+\pagebreak
+
+### `r fig_nums("fig5-netmfi")`
+
+Median and 95% credible intervals are shown for the estimated (A) nominal specificity (black dashed line) and (B) time-varying sensitivity. Each row represents a different method for acquiring a cut-off including the Youden Index or maximizing sensitivity for a desired value of specificity. The relationship between logit(sensitivity) and time since infection (log-transformed) was constant for the 45-day window, linear for the 120-day, quadratic for the 200-day window, and cubic for the 300-day window. Traditional = vibriocidal Ogawa, vibriocidal Inaba, and 4 ELISA markers, All MBA = 18 MBA markers, All MBA IgG = 6 MBA markers, Reduced panel= Ogawa OSP, Inaba OSP, and CT-B IgG. All models also included age, sex, and blood type as predictors.
+
+```{r fig5-netmfi, eval=TRUE}
+
+tvsens_df <-read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/tvsens-spec/tvsens_df.rds") %>%
+        mutate(seropos_type = case_when(
+                        seropos_type == "youden_seropos" ~ "Youden Index",
+                        seropos_type == "spec99_seropos" ~ "99% Specificity",
+                        seropos_type == "spec95_seropos" ~ "95% Specificity",
+                        seropos_type == "spec90_seropos" ~ "90% Specificity"
+                        )) %>%
+        mutate(seropos_type=factor(seropos_type,
+                                   levels=c("Youden Index",
+                                            "90% Specificity",
+                                            "95% Specificity",
+                                            "99% Specificity")))
+spec_df <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/tvsens-spec/spec_df.rds") %>%
+        mutate(seropos_type = case_when(
+                        seropos_type == "youden_seropos" ~ "Youden Index",
+                        seropos_type == "spec99_seropos" ~ "99% Specificity",
+                        seropos_type == "spec95_seropos" ~ "95% Specificity",
+                        seropos_type == "spec90_seropos" ~ "90% Specificity"
+                        )) %>%
+        mutate(seropos_type=factor(seropos_type,
+                                   levels=c("Youden Index",
+                                            "90% Specificity",
+                                            "95% Specificity",
+                                            "99% Specificity")))
+raw_df <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/tvsens-spec/raw_df.rds")
+
+avg_sens_df <- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/tvsens-spec/avgsens_df.rds") %>%
+        mutate(seropos_type = case_when(
+                        seropos_type == "youden_seropos" ~ "Youden Index",
+                        seropos_type == "spec99_seropos" ~ "99% Specificity",
+                        seropos_type == "spec95_seropos" ~ "95% Specificity",
+                        seropos_type == "spec90_seropos" ~ "90% Specificity"
+                        )) %>%
+        mutate(seropos_type=factor(seropos_type,
+                                   levels=c("Youden Index",
+                                            "90% Specificity",
+                                            "95% Specificity",
+                                            "99% Specificity")))
+
+
+#choose which variables you want to include
+sens_spec_vars <- c("Traditional (with non-Immuno)" ,"All NetMFI (with non-Immuno)", "All NetMFI IgG (with non-Immuno)",
+                    "Reduced Panel NetMFI (with non-Immuno)"
+                    )
+
+
+
+
+#make plots
+p1 <- spec_df %>% 
+        filter(variables %in% sens_spec_vars)%>%
+        mutate(variables=str_remove_all(variables,"with non-Immuno|\\(|\\)")) %>%
+        mutate(variables=str_replace(variables,"NetMFI","MBA")) %>%
+        ggplot(aes(x=factor(end_window),col=variables))+
+                geom_point(aes(y=median),position=position_dodge2(.5))+
+                geom_linerange(aes(ymin=lb,ymax=ub),
+                               position=position_dodge2(.5))+
+                geom_hline(data=data.frame(seropos_type=factor(c("Youden Index",
+                                            "90% Specificity",
+                                            "95% Specificity",
+                                            "99% Specificity"),
+                                   levels=c("Youden Index",
+                                            "90% Specificity",
+                                            "95% Specificity",
+                                            "99% Specificity")),
+                                           yint=c(NA,0.90,0.95,0.99)
+                                           ),
+                           aes(yintercept=yint),
+                           lty=2
+                           )+
+        scale_y_continuous("Specificity")+
+        facet_grid(seropos_type~.,scales = "free")+
+        xlab("Infection window")+
+        scale_color_brewer(palette="Set2","Markers")+
+        scale_fill_brewer(palette="Set2","Markers")+
+                theme_bw()+
+        theme(legend.position = "bottom",
+              panel.grid.minor = element_blank(),
+             panel.grid.major.x  = element_blank()
+
+              )
+
+
+
+ p2 <-  tvsens_df %>% 
+        filter(time<end_window) %>%
+        filter(variables %in% sens_spec_vars)%>%
+        mutate(variables=str_remove_all(variables,"with non-Immuno|\\(|\\)")) %>%
+        mutate(variables=str_replace(variables,"NetMFI","MBA")) %>%
+        ggplot(aes(col=variables,fill=variables))+
+        geom_line(aes(y=median,x=time))+
+        geom_ribbon(aes(x=time,ymin=lb,ymax=ub),
+                    alpha=0.1,col=NA
+        )+
+        geom_rug(data=raw_df %>% filter(truth==1#,
+                                        # model=="Weighted"
+                                        ) %>%
+                         distinct(sample,day_actual,end_window),
+                 sides="b", alpha=0.1,
+                 aes(x=day_actual),inherit.aes = FALSE
+                 ) +
+        geom_rug(data=avg_sens_df %>%
+        filter(variables %in% sens_spec_vars)%>%
+        mutate(variables=str_remove_all(variables,"with non-Immuno|\\(|\\)")) %>%
+        mutate(variables=str_replace(variables,"NetMFI","MBA")) ,
+                 sides="r",
+                 aes(y=sens)
+                 )+
+        scale_y_continuous("Sensitivity", limits=c(0,1),
+                                   breaks=c(0,0.2,0.5,0.8,1))+
+
+        scale_x_continuous("Days since infection",
+                           breaks=c(7,45,120,200,300)
+                           )+
+        scale_color_brewer(palette="Set2","Markers")+
+        scale_fill_brewer(palette="Set2","Markers")+
+        theme_bw()+
+        facet_grid(seropos_type~end_window,scales="free_x",space="free_x")+
+         theme(panel.grid.minor = element_blank(),
+               panel.grid.major.x  = element_blank()
+               )
+
+
+plot_grid(p1 + theme(legend.position = "none"),
+          p2 + theme(legend.position = "none"),
+          rel_widths = c(1,3),align = "h",axis = c("tb"),
+          labels=c("A","B")
+          ) %>%
+plot_grid(ggpubr::get_legend(p1),ncol=1,rel_heights = c(10,1))
+
+
+```
+
+
+\pagebreak
+
+### `r fig_nums("no-ctb-cvAUC")`
+
+(A) Random forest models were fit using a the specified marker set and individual level factors including age, sex, and blood group. Estimated mean and 95% confidence intervals for cvAUC are reported. (B-D) Models fit to reduced panels of IgG, IgA, and IgM MBA markers are shown. 
+
+```{r no-ctb-cvAUC, eval=TRUE}
+
+
+marker_cvAUC_list_noctb <- read_rds(
+          "source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/6_cvAUC_list_noctb.rds"
+          )  
+
+times <- c(45,120,200,300)
+
+cv_marker_df <- data.frame()
+
+for(k in names(marker_cvAUC_list_noctb)){
+  for(j in as.character(times)){
+        cv_marker_df <- bind_rows(cv_marker_df,
+                                   marker_cvAUC_list_noctb[[k]][[j]][[4]] %>%
+                                          mutate(
+                                  model=k)
+                                  )
+  }
+}
+
+#make plot to compare overall models
+cv_marker_plot <- cv_marker_df %>%
+              mutate(model=str_replace(model,"Luminex","MBA")) %>%
+              mutate(`Marker Set`= factor(model,levels=names(marker_cvAUC_list_noctb)) ) %>%
+                mutate(Window=paste0(end_window,"-day")) %>%
+              mutate(Window= factor(Window,levels=c("45-day","120-day","200-day","300-day")) ) %>%
+
+              ggplot()+
+                  geom_point(aes(y=cvAUC,x=`Marker Set`,col=Window),position = position_dodge(width = 0.3))+
+                  geom_linerange(aes(x=`Marker Set`,col=Window,
+                                   ymin=ci1,ymax=ci2),position = position_dodge(width = 0.3))+
+                  scale_y_continuous(limits=c(0.4,1))+
+                  scale_color_brewer(palette ="Set2")+
+
+                  theme_bw()+
+                  theme(axis.text.x = element_text(angle=45,hjust=1),
+                        panel.grid.minor = element_blank(),
+                        panel.grid.major.x = element_blank())
+
+# Figure out which antigens are most important for IgG
+compareAntigen_cvAUC_IgG <- read_rds(
+          "source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/7_cvAUC_combo_noctxb.rds"
+          )  %>% filter(isotype=="IgG") %>%
+        filter(type=="RAU") %>%
+          arrange(end_window) %>%
+          group_by(end_window) %>%
+          mutate( panel = added,
+                  panel= str_remove(panel,"RAU_IgG_"),
+                  panel= str_replace(panel,"OSPBSA"," OSP"),
+                  panel =ifelse(panel=="CtxB","CT-B",panel)
+                  ) %>%
+        mutate(panel=ifelse(panel=="Ogawa OSP",panel,paste("+",panel))) %>%
+        ungroup()
+
+
+compareAntigen_cvAUC_plot_IgG<- compareAntigen_cvAUC_IgG %>%
+          mutate(
+                 Window=paste0(end_window,"-day"),
+                 Window=factor(Window,levels=c("45-day","120-day","200-day","300-day"))
+                 ) %>%
+          mutate(`MBA Panel for IgG` = factor(panel,levels= distinct(compareAntigen_cvAUC_IgG,panel) %>% pull(panel))) %>%
+              ggplot(aes(x=`MBA Panel for IgG`,col=Window))+
+                  geom_point(aes(y=cvAUC),position = position_dodge(width = 0.3))+
+                  geom_linerange(aes(ymin=ci1,ymax=ci2),position = position_dodge(width = 0.3))+
+                  scale_y_continuous(limits=c(0.4,1))+
+                  scale_color_brewer(palette ="Set2")+
+                  theme_bw()+
+                  theme(axis.text.x =  element_text(angle=45, hjust = 1),
+                        panel.grid.minor = element_blank(),
+                        panel.grid.major.x = element_blank()
+                        )
+
+
+# Figure out which antigens are most important for IgA
+compareAntigen_cvAUC_IgA <- read_rds(
+          "source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/7_cvAUC_combo_noctxb.rds"
+          )  %>% filter(isotype=="IgA") %>%
+        filter(type=="RAU") %>%
+          arrange(end_window) %>%
+          group_by(end_window) %>%
+          mutate( panel = added,
+                  panel= str_remove(panel,"RAU_IgA_"),
+                  panel= str_replace(panel,"OSPBSA"," OSP"),
+                  panel =ifelse(panel=="CtxB","CT-B",panel)
+                  ) %>%
+        mutate(panel=ifelse(panel=="Ogawa OSP",panel,paste("+",panel))) %>%
+        ungroup()
+
+
+compareAntigen_cvAUC_plot_IgA<- compareAntigen_cvAUC_IgA %>%
+          mutate(
+                 Window=paste0(end_window,"-day"),
+                 Window=factor(Window,levels=c("45-day","120-day","200-day","300-day"))
+                 ) %>%
+          mutate(`MBA Panel for IgA` = factor(panel,levels= distinct(compareAntigen_cvAUC_IgA,panel) %>% pull(panel))) %>%
+              ggplot(aes(x=`MBA Panel for IgA`,col=Window))+
+                  geom_point(aes(y=cvAUC),position = position_dodge(width = 0.3))+
+                  geom_linerange(aes(ymin=ci1,ymax=ci2),position = position_dodge(width = 0.3))+
+                  scale_y_continuous(limits=c(0.4,1))+
+                  scale_color_brewer(palette ="Set2")+
+                  theme_bw()+
+                  theme(axis.text.x =  element_text(angle=45, hjust = 1),
+                        panel.grid.minor = element_blank(),
+                        panel.grid.major.x = element_blank()
+                        )
+
+
+
+# Figure out which antigens are most important for IgM
+compareAntigen_cvAUC_IgM <- read_rds(
+          "source/final_code/luminex_recommendation/generated_rds/random_forest_results/cvAUC_importance/7_cvAUC_combo_noctxb.rds"
+          )  %>% filter(isotype=="IgM") %>%
+        filter(type=="RAU") %>%
+          arrange(end_window) %>%
+          group_by(end_window) %>%
+          mutate( panel = added,
+                  panel= str_remove(panel,"RAU_IgM_"),
+                  panel= str_replace(panel,"OSPBSA"," OSP"),
+                  panel =ifelse(panel=="CtxB","CT-B",panel)
+                  ) %>%
+        mutate(panel=ifelse(panel=="Ogawa OSP",panel,paste("+",panel))) %>%
+        ungroup()
+
+
+compareAntigen_cvAUC_plot_IgM<- compareAntigen_cvAUC_IgM %>%
+          mutate(
+                 Window=paste0(end_window,"-day"),
+                 Window=factor(Window,levels=c("45-day","120-day","200-day","300-day"))
+                 ) %>%
+          mutate(`MBA Panel for IgM` = factor(panel,levels= distinct(compareAntigen_cvAUC_IgM,panel) %>% pull(panel))) %>%
+              ggplot(aes(x=`MBA Panel for IgM`,col=Window))+
+                  geom_point(aes(y=cvAUC),position = position_dodge(width = 0.3))+
+                  geom_linerange(aes(ymin=ci1,ymax=ci2),position = position_dodge(width = 0.3))+
+                  scale_y_continuous(limits=c(0.4,1))+
+                  scale_color_brewer(palette ="Set2")+
+                  theme_bw()+
+                  theme(axis.text.x =  element_text(angle=45, hjust = 1),
+                        panel.grid.minor = element_blank(),
+                        panel.grid.major.x = element_blank()
+                        )
+
+
+
+
+
+b_legend <- ggpubr::get_legend(
+                        cv_marker_plot +
+                        theme(legend.position = "bottom"))
+
+
+
+
+plot_grid(
+        plot_grid(cv_marker_plot+
+            theme(legend.position = "none"),
+          compareAntigen_cvAUC_plot_IgG+
+            theme(legend.position = "none"),align="h",
+          labels=c("A","B")
+          ),
+        plot_grid(compareAntigen_cvAUC_plot_IgA+
+            theme(legend.position = "none"),
+          compareAntigen_cvAUC_plot_IgM+
+            theme(legend.position = "none"),align="h",
+          labels=c("C","D")
+          ),
+        b_legend ,ncol=1, rel_heights = c(10,10,1)
+        ) 
+
+
+
+
+
+```
+
+\pagebreak
+
+
+
+
+
+```{r marker-cutoff, eval=FALSE}
+
+
+### `r fig_nums("marker-cutoff")`
+
+# Individuals were considered seropositive if their RAU was above the cut-off for both anti-Ogawa OSP IgG and anti-CT-B IgG. Sensitivity and specificity were estimated using a hierarchical logistic regression model with only an intercept fixed effect. The red dot represents the point where specificity is ≥ 90%, anti-OgawaOSP IgG RAU ≥-4.0, and then maximizing sensitivity. 
+
+# We then estimated the specificity and (non-time-varying) sensitivity when using a cut-off requirement (for anti-Ogawa OSP IgG and anti-CT-B IgG) to be identified as a case infected in the last 120 days (Figure S24). The sum of sensitivity and specificity was maximized when anti-CT-B IgG was ≥-3.1 log10(RAU-1) and anti-Ogawa OSP IgG was unrestricted. An approach relying on both markers (anti-CT-B IgG: ≥-3.1 log10(RAU-1) and anti-Ogawa OSP IgG: ≥-4.0 log10(RAU-1) resulted in a specificity of 97% and sensitivity of 60%.
+
+# We then explored the performance of simple numeric thresholds based on the two most predictive antibody measurements (anti-Ogawa OSP IgG and anti-CT-B IgG). Using the threshold that maximized both sensitivity and specificity (Youden Index) a single cutoff for CTB led to sensitivities ranging from X-X and specificities from Z-Z depending on the infection window of interest.Bivariate thresholds using both markers resulted in a sensitivities ranging from XX-XX and specificities from YY-YY. 
+
+
+
+fit_ssy_df<- read_rds("source/final_code/luminex_recommendation/generated_rds/random_forest_results/tvsens-spec/cutoff_fit_ssy_df.rds")
+ 
+p1 <- wide_analysis %>%addInfectionWindow(120) %>%
+                mutate(`Recently Infected`=inf_120)%>%
+                ggplot(aes(x=Luminex_IgG_CtxB,y=Luminex_IgG_OgawaOSPBSA))+
+                        geom_point(aes(col=`Recently Infected`,shape=status),alpha=0.5)+
+                        theme_bw()+
+                geom_hline(yintercept=-4,lty=2)+
+                geom_vline(xintercept=-3.1,lty=2)+
+                ylab("anti-Ogawa OSP IgG")+
+                xlab("anti-CT-B IgG")+
+                theme_bw()
+        
+p2 <- fit_ssy_df %>% ggplot(aes(x=Luminex_IgG_CtxB,y=Luminex_IgG_OgawaOSPBSA))+
+                geom_tile(aes(fill=sens))+
+                scale_fill_viridis_c("Sensitivity")+
+                # scale_fill_fermenter(palette="BuGn",
+                #                      direction=1,
+                #                      breaks=c(0.5,0.6,0.7,0.9))+
+                geom_point(inherit.aes = FALSE,
+                           x=-3.1,y=-4,col="red"
+                           )+
+                ylab("anti-Ogawa OSP IgG")+
+                xlab("anti-CT-B IgG")+
+                theme_bw()
+
+p3 <- fit_ssy_df %>% ggplot(aes(x=Luminex_IgG_CtxB,y=Luminex_IgG_OgawaOSPBSA))+
+                geom_tile(aes(fill=spec))+
+                scale_fill_viridis_c("Specificity")+
+                # scale_fill_fermenter(
+                #         palette="BuGn",
+                #                      direction=1,
+                #         breaks=c(0.9,0.95,0.99))+
+                geom_point(inherit.aes = FALSE,
+                           x=-3.1,y=-4,col="red"
+                           )+
+                ylab("anti-Ogawa OSP IgG")+
+                xlab("anti-CT-B IgG")+
+                theme_bw()
+
+p4 <- fit_ssy_df %>% ggplot(aes(x=Luminex_IgG_CtxB,y=Luminex_IgG_OgawaOSPBSA))+
+                geom_tile(aes(fill=youden))+
+                scale_fill_viridis_c("Youden\nIndex")+
+                geom_point(inherit.aes = FALSE,
+                           x=-3.1,y=-4,col="red"
+                           )+
+                ylab("anti-Ogawa OSP IgG")+
+                xlab("anti-CT-B IgG")+
+                theme_bw()
+
+
+plot_grid(p1,p2,p3,p4,
+          labels=c("A","B","C","D")
+          )
+
+
+
+
+```
+
+\pagebreak
+
+## References
+
+1. Ritz C, Baty F, Streibig JC, Gerhard D. Dose-response analysis using R. PloS one. 2015 Dec 30;10(12):e0146021.
+
+
+```{r}
+
+sum_stat_df <- read_rds("source/final_code/luminex_recommendation/generated_rds/decay_model_results/fits-compare/summary_df.rds") %>% 
+      filter(model=="exponential")
+
+# sum_stat_df <- summary_df %>%      filter(model=="exponential")
+
+
+calc <- sum_stat_df %>% #filter(!str_detect(marker,"ELISA")) %>%
+                        filter(str_detect(parameter,"foldchange|halflife")) %>%
+                        select(marker,parameter,`X50.`,`X2.5.`,`X97.5.`) %>%
+                        #extract quantile
+                        gather(Quantile,value,-c(marker,parameter)) %>%
+                        mutate(Quantile=str_remove(Quantile,"X")) %>%
+                        mutate(Quantile=substr(Quantile,1,nchar(Quantile)-1)) %>%
+                        #calculate foldchange and halflife
+                        spread(parameter,value) %>%
+                        # mutate(#halflife=log(2)/delta,
+                        #        # avg_FC=ifelse(str_detect(marker,"Luminex"),
+                        #        #               10^mu_lambda,
+                        #        #               2^mu_lambda)
+                        # ) %>% select(-foldchange) %>%
+                        gather(measure,value,-c(marker,Quantile)) %>%
+                        # bring together measure and Quantile and spread
+                        mutate(measure_Quantile=paste(measure,Quantile,sep="_")) %>%
+                        select(-measure,-Quantile) %>%
+                        spread(measure_Quantile,value) %>%
+                        #get antigen and isotype
+                        mutate(antigen=str_remove(marker,"Luminex_|NetMFI_|RAU_")) %>%
+                        mutate(antigen=str_remove(antigen,"IgG_|IgM_|IgA_")) %>%
+                        mutate(isotype=str_extract(marker,"IgG|IgM|IgA")) %>%
+                        left_join(antigen_df) %>%
+                        rename(Antigen=antigen_pretty)
+
+calc %>%
+        mutate(`MBA Measure` =ifelse(str_detect(marker,"RAU"),
+                                     "RAU", "Net MFI"
+                                     )) %>%
+      filter(antigen %in% O1_antigens) %>%
+      mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM"))) %>%
+                ggplot(aes(x=halflife_50,foldchange_50))+
+                        #luminex
+                        geom_point(aes(col=`MBA Measure`))+
+                        geom_linerange(aes(ymin=foldchange_2.5,ymax=foldchange_97.5,
+                                           col=`MBA Measure`))+
+                        geom_linerange(aes(xmax=halflife_2.5,xmin=halflife_97.5,
+                                           col=`MBA Measure`))+
+
+                        scale_color_brewer(palette = "Set2")+
+                        facet_grid(isotype~Antigen)+
+                        theme_cowplot()+
+                        scale_y_continuous("Average fold-change",trans="log2",#limits=c(1,128),
+                                           breaks = c(2,8,32,128))+
+                        scale_x_continuous("Half-life (days)",trans="log2",
+                                           breaks=c(1,7,30,90,180,365),
+                                           #limits = c(1,365)
+                                           )+
+  geom_hline(yintercept=1,lty=2,col="grey")+
+        theme(axis.text.x = element_text(angle=45,hjust=1))
+
+```
+
+
+```{r}
+
+RAU_3 <- c("RAU_IgG_CtxB","RAU_IgG_InabaOSPBSA","RAU_IgG_OgawaOSPBSA",
+           "age","sex","blood")
+
+NetMFI_3 <- c("NetMFI_IgG_CtxB","NetMFI_IgG_InabaOSPBSA","NetMFI_IgG_OgawaOSPBSA",
+           "age","sex","blood")
+
+
+#set up prediction list
+pred_list_fourth<- list( 
+        `Three RAU` = RAU_3,
+        `RAU add TcpA` = c(RAU_3,"RAU_IgG_TcpA"),
+        `RAU add Sialidase` = c(RAU_3,"RAU_IgG_Sialidase"),
+        `RAU add VCC` = c(RAU_3,"RAU_IgG_VCC"),
+        # `RAU add Flu` = c(RAU_3,"RAU_IgG_Flu"),
+
+        
+        `Three NetMFI` = NetMFI_3,
+        `NetMFI add TcpA` = c(NetMFI_3,"NetMFI_IgG_TcpA"),
+        `NetMFI add Sialidase` = c(NetMFI_3,"NetMFI_IgG_Sialidase"),
+        `NetMFI add VCC` = c(NetMFI_3,"NetMFI_IgG_VCC")#,
+        # `NetMFI add Flu` = c(NetMFI_3,"NetMFI_IgG_Flu")
+
+        
+
+)
+
+days <- c(45,120,200,300)
+folds=10
+tree_param=1000
+
+#set up for loop
+fourth_cvAUC_df <- data.frame()
+fourth_cvPred_df <- data.frame()
+
+for (W in c(TRUE,FALSE)){
+for (pred in names(pred_list_fourth)){
+        for (d in days){
+
+                cat("Predictors: ",pred,"Weighted: ", W,"Window:",d,"\n")
+
+                cv_tmp <- kfoldcv_ranger(analysisData$new_wide_data, k=folds,
+                                         weighted=W,
+                                         end_window=d,
+                                         variables= pred_list_1[[pred]],
+                                         num.trees=tree_param)
+
+                fourth_cvAUC_df <- bind_rows(fourth_cvAUC_df,
+                                     cv_tmp$cvAUC %>%
+                                             mutate(predictors=pred)
+                                             
+                                     )
+                
+                
+                cv_tmp$cv_df["outcome"] <- cv_tmp$cv_df[paste0("inf_",d)]
+                cv_tmp$cv_df["predictors"] <- pred
+                
+                
+                #for the ROC curve
+                fourth_cvPred_df <- bind_rows(fourth_cvPred_df,
+                                       cv_tmp$cv_df
+                )
+
+
+
+        }
+}
+}
+
+
+fourth_cvAUC_df %>%
+        filter(weighted==TRUE) %>%
+                mutate(Window=paste0(end_window,"-day")) %>%
+              mutate(Window= factor(Window,levels=c("45-day","120-day","200-day","300-day")) ) %>%
+                mutate(model=factor(predictors,levels=names(pred_list_fourth)))%>%
+
+              ggplot()+
+                  geom_point(aes(y=cvAUC,col=model,x=Window),position = position_dodge(width = 0.3))+
+                  geom_linerange(aes(col=model,x=Window,
+                                   ymin=ci1,ymax=ci2),position = position_dodge(width = 0.3))+
+                  scale_y_continuous(limits=c(0.7,1))+
+                  scale_color_brewer(palette ="Set2")+
+
+                  theme_bw()+
+                  theme(axis.text.x = element_text(angle=45,hjust=1),
+                        panel.grid.minor = element_blank(),
+                        panel.grid.major.x = element_blank())
+
+```
+
+
+
+```{r single-marker-cvAUC-fig, fig.height=5, eval=FALSE}
+# \pagebreak
+
+### `r fig_nums("single-marker-cvAUC")`
+
+# Cross-validated area under the curve for single multiplex bead assay (MBA) marker conditional random forest models using 90-day, 180-day, and 365-day infection windows. Conditional random forest models were using a single MBA marker and individual level factors including age, sex, and blood group. Mean and 95% confidence intervals for cvAUC are shown. Black dashed line is set at 50% the point where a model would have no predictive skill.
+
+
+# tree_param <- 1000
+# 
+# #O1 markers
+# single_markers<- expand.grid(isotype=c("IgG","IgM","IgA"),antigen=O1_antigens) %>%
+#                         mutate(marker=paste("Luminex",isotype,antigen,sep="_")) %>%
+#                         pull(marker)
+# 
+# 
+# add_demo <- function(x){
+#   tmp <- c(x,"age","sex","blood")
+#   return(tmp)
+# }
+# 
+# single_marker_list <- lapply(single_markers,FUN=add_demo)
+# 
+# 
+# times <- c(90,180,365)
+# 
+# single_marker_cvAUC_list <- list()
+# 
+# for (i in 1:length(single_marker_list)){
+#   for(j in 1:length(times)){
+# 
+#       #collect start
+#       tstamp <- Sys.time()
+# 
+#       #combination of single marker and time window
+#       mod_name <- paste0(single_marker_list[[i]][1],"-",times[j])
+#       print(mod_name)
+# 
+#       #get the cvAUC
+#       form <- make_formula(paste0("inf_",times[j]), single_marker_list[[i]])
+#       single_marker_cvAUC_list[[mod_name]] <- kfold_cv_cforest(form,
+#                         data= wide_analysis,
+#                         weighted = FALSE,
+#                         ntrees=tree_param, k=20
+#                    )
+#       #list model marker and window
+#       single_marker_cvAUC_list[[mod_name]]$cvAUC <- single_marker_cvAUC_list[[mod_name]]$cvAUC %>%
+#                       mutate(model=single_marker_list[[i]][1]) %>%
+#                       mutate(window = paste0(times[j],"-day"))
+# 
+#       #print duration of time for model
+#       print(Sys.time()-tstamp)
+#   }
+# }
+# 
+# write_rds(single_marker_cvAUC_list,
+#           paste0("source/final_code/luminex_recommendation/generated_rds/random_forest_results/",Sys.Date(),"-single_marker_cvAUC_list-UNWEIGHTED.rds")
+#           )
+
+
+single_marker_cvAUC_list_weighted <- read_rds(
+          "source/final_code/luminex_recommendation/generated_rds/random_forest_results/2021-10-21-single_marker_cvAUC_list.rds"
+          )
+
+single_marker_cvAUC_list_unweighted <- read_rds(
+          "source/final_code/luminex_recommendation/generated_rds/random_forest_results/2021-10-21-single_marker_cvAUC_list-UNWEIGHTED.rds"
+          )
+
+
+
+
+single_marker_df_weighted<- data.frame()
+single_marker_df_unweighted <- data.frame()
+
+for (i in names(single_marker_cvAUC_list_weighted)){
+  single_marker_df_weighted <- bind_rows(single_marker_df_weighted,
+                                single_marker_cvAUC_list_weighted[[i]][[1]]
+                                
+                                ) %>%
+      mutate(Isotype=str_extract(model,"IgG|IgM|IgA")) %>%
+      mutate(antigen=str_remove_all(model,"Luminex_|IgG_|IgM_|IgA_"))
+  
+   single_marker_df_unweighted <- bind_rows(single_marker_df_unweighted,
+                                single_marker_cvAUC_list_unweighted[[i]][[1]]
+                                
+                                ) %>%
+      mutate(Isotype=str_extract(model,"IgG|IgM|IgA")) %>%
+      mutate(antigen=str_remove_all(model,"Luminex_|IgG_|IgM_|IgA_"))
+  
+  
+}
+
+single_marker_df_weighted %>% 
+  left_join(antigen_df) %>%
+  mutate(Window=factor(window,levels=c("90-day","180-day","365-day"))) %>%
+  mutate(Isotype=factor(Isotype,levels=c("IgG","IgA","IgM"))) %>%
+        ggplot(aes(x=antigen_pretty,col=Window))+
+                geom_hline(lty=2,yintercept =0.5,col="black")+
+                  geom_point(aes(y=cvAUC),position = position_dodge(width = 0.5))+
+                  geom_linerange(aes(ymin=ci1,ymax=ci2),position = position_dodge(width = 0.5))+
+                  facet_wrap(.~Isotype)+
+                  scale_color_brewer(palette ="Set2")+
+                  scale_y_continuous(breaks=c(0.25,0.5,0.75,1),limits = c(0.25,1))+
+                xlab("Antigen")+
+                theme_cowplot()+
+                theme(axis.text.x=element_text(angle=45,hjust=1))
+
+# single_marker_df_unweighted %>% 
+#   left_join(antigen_df) %>%
+#   mutate(Window=factor(window,levels=c("90-day","180-day","365-day"))) %>%
+#   mutate(Isotype=factor(Isotype,levels=c("IgG","IgA","IgM"))) %>%
+#         ggplot(aes(x=antigen_pretty,col=Window))+
+#                 geom_hline(lty=2,yintercept =0.5,col="black")+
+#                   geom_point(aes(y=cvAUC),position = position_dodge(width = 0.5))+
+#                   geom_linerange(aes(ymin=ci1,ymax=ci2),position = position_dodge(width = 0.5))+
+#                   facet_wrap(.~Isotype)+
+#                   scale_color_brewer(palette ="Set2")+
+#                 xlab("Antigen")+
+#                 theme_cowplot()+
+#                 theme(axis.text.x=element_text(angle=45,hjust=1))
+
+
+```
+
+
+```{r single-marker-cvAUC, eval=FALSE}
+# \pagebreak
+
+
+### `r tab_nums("single-marker-cvAUC")`
+# 
+# Conditional random forest models were using a single MBA marker and individual level factors including age, sex, and blood group. Mean and 95% confidence intervals for cvAUC are reported.
+
+
+single_marker_cvAUC_list <- read_rds(
+          "source/final_code/luminex_recommendation/generated_rds/random_forest_results/2021-10-03-single_marker_cvAUC_list.rds"
+          )
+
+
+single_marker_df <- data.frame()
+
+for (i in names(single_marker_cvAUC_list)){
+  single_marker_df <- bind_rows(single_marker_df,
+                                single_marker_cvAUC_list[[i]][[1]]
+                                
+                                ) %>%
+      mutate(Isotype=str_extract(model,"IgG|IgM|IgA")) %>%
+      mutate(Antigen=str_remove_all(model,"Luminex_|IgG_|IgM_|IgA_"))
+  
+  
+}
+
+single_marker_df %>% 
+  mutate(Window=factor(window,levels=c("90-day","180-day","365-day"))) %>%
+  mutate(Isotype=factor(Isotype,levels=c("IgM","IgG","IgA"))) %>%
+  mutate(CI=paste0(sprintf("%.2f",cvAUC)," (",
+                   sprintf("%.2f",ci1),"-",
+                   sprintf("%.2f",ci2),")")) %>%
+  select(Isotype,Antigen,CI,window) %>%
+  spread(window,CI) %>%
+  select(Isotype,Antigen,`90-day`,`180-day`,`365-day`) %>%
+  flextable::flextable() %>%
+  flextable::merge_v(j="Isotype") %>%
+  flextable::valign(j="Isotype",valign = "top") %>%
+  flextable::fontsize(size = 9,part="all") %>%
+  flextable::autofit()
+  
+
+```
+
+
+
+
+```{r compare-window, eval=FALSE}
+
+# \pagebreak
+
+### `r fig_nums("compare-window")`
+ # Multiplex bead assay measurements against CT-B, Inaba OSP, and Ogawa OSP across time periods. Y-axis indicates the log (base 10) of the relative antibody units (RAU) with limits at 10^-2 and 10^-5. Individuals may contribute multiple samples within each window. Grey violin plot highlights the distribution of baseline values for cases (green circles) and all samples from uninfected household contacts (purple triangles).
+
+
+predict_data <- analysisData$RAU_data$long_data%>% filter(test_type=="Luminex" & antigen  %in% c("OgawaOSPBSA","CtxB", "InabaOSPBSA")) 
+
+
+
+
+NOTbaseline <- predict_data %>%
+                addInfectionWindow(end_window=45) %>%
+                addInfectionWindow(end_window=120) %>%
+                addInfectionWindow(end_window=200) %>%
+                addInfectionWindow(end_window=300) %>%
+                mutate(Period=ifelse(inf_300==1,"201-300 days",">300 days")) %>%
+                mutate(Period=ifelse(inf_200==1,"121-200 days",Period)) %>%
+                mutate(Period=ifelse(inf_120==1,"46-120 days",Period)) %>%
+                mutate(Period=ifelse(inf_45==1,"7-45 days",Period)) %>%
+                mutate(Period=ifelse(day_contact=="Day 2 / Contact","<7 days",Period)) %>%
+                mutate(Period = factor(Period, levels=rev(c("<7 days","7-45 days","46-120 days",
+                                                        "121-200 days","201-300 days",
+                                                        ">300 days"
+                                                        )))) %>%
+                mutate(Baseline=status) %>%
+                mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM")))
+  
+
+baseline <- expand.grid(
+        sample = predict_data %>% filter(day_contact=="Day 2 / Contact") %>%  
+          distinct(sample) %>% pull(sample),
+        Period=levels(NOTbaseline$Period)) %>%
+    left_join(predict_data %>% filter(day_contact=="Day 2 / Contact"))%>%
+                mutate(Baseline="Baseline") %>%
+  mutate(isotype=factor(isotype,levels=c("IgG","IgA","IgM")))
+
+
+
+#violin plots
+
+NOTbaseline %>% mutate(Period=factor(Period,levels=rev(levels(NOTbaseline$Period)))) %>%
+      left_join(antigen_df) %>%
+      ggplot()+
+                  geom_violin(data=baseline %>% 
+                                mutate(Period=factor(Period,levels=rev(levels(baseline$Period)))) %>%
+                                left_join(antigen_df) 
+                              ,
+                                      aes(x=Period,y=value,
+                                          fill=Baseline,shape=Baseline,
+                                          alpha=Baseline,col=Baseline),
+                              lwd=0
+                              )+
+  geom_jitter(
+                                      aes(x=Period,y=value,
+                                          col=Baseline,shape=Baseline,
+                                          fill=Baseline,
+                                          alpha=Baseline
+                                          ),
+                                          height=0
+                                      )+
+                  facet_grid(isotype~antigen_pretty)+
+                  scale_fill_manual("Group",values=c("grey",NA,NA),
+                                    na.value ="white"
+                                    )+
+                  scale_color_manual("Group",values=c(NA,"#7fbf7b","#af8dc3"))+
+                  scale_alpha_manual("Group",values = c(0.5,0.5,1))+
+                  scale_shape_manual("Group",values = c(NA,16,17))+
+                  ylab("log10(RAU)")+
+                  # scale_y_continuous("1/RAU",trans = "log10",
+                  #                    labels = function(x) sprintf("%g", x)
+                  #                    )+
+                  theme_cowplot()+
+                  theme(legend.position = "bottom",
+                        axis.text.x = element_text(angle=45,hjust=1),
+                        )
+
+```
+

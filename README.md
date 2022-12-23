@@ -5,4 +5,4 @@ This is a work in progress so if you don't see what you are looking for or have 
 
 ## Antibody Kinetic Models
 
-## Random Forrest Models
+## Random Forest Models

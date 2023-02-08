@@ -12,6 +12,7 @@ output:
 ```{r setup, include=FALSE}
 
 library(knitr)
+library(here)
 
 knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE,
                       fig.height = 9.06,
@@ -42,17 +43,14 @@ knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE,
 # library(tidybayes)
 
 
-source("source/final_code/luminex_recommendation/R/packages.R")
-source("source/final_code/shared/utils.R")
-
-
+source(here("source/R/packages.R"))
+source(here("source/R/utils.R"))
 ```
 
 
 ```{r data, eval=TRUE, cache=TRUE}
 
-source("source/final_code/luminex_recommendation/R/load-data.R")
-
+source(here("source/R/load-data.R"))
 
 # analysisData<- LuminexRecPaperData()
 # 

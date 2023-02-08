@@ -2,9 +2,7 @@
 
 #dropbox token
 
-token <- read_rds('data/generated_data/dropbox_token/token.rds')
-
-
+#token <- read_rds('data/generated_data/dropbox_token/token.rds')
 
 #####################sample selection #################################
 
@@ -487,7 +485,7 @@ get_dilution <- function(string){
 getWideData <- function(){
     
     #cases and contacts
-    weill_data1 <- readstata13::read.dta13("data/raw_data/cohort_data/CIRS PIC SMIC Master DB March 2019.dta") 
+    weill_data1 <- readstata13::read.dta13(here("data/raw_data/cohort_data/CIRS PIC SMIC Master DB March 2019.dta"))
     labels <- readstata13::varlabel(weill_data1)
     labels <- data.frame(variable=names(labels),description=as.character(labels))
     weill_data2 <- weill_data1 %>% 
@@ -518,95 +516,10 @@ getWideData <- function(){
     
     
     
-    
-    #vaccinees
-    
-    # get age and sex for RIKS2
-    vax_adult_demo1 <-  read_excel("data/raw_data/cohort_data/RIKS2_enrollment_gender_modified.xlsx") %>%
-        rename(sex=Sexe,age=Laj,simpleid=id)  %>%
-        mutate(sex=factor(sex,levels=c("M","F"),labels=c("male","female"))) %>%
-        mutate(id=str_remove(`RIK ID Patisipan`," ")) %>%
-        mutate(id=str_replace(id,"RIKS2","R2")) %>%
-        mutate(id=str_replace(id,"-","_"))
-
-    # add blood group for RIKS2
-    vax_adult_demo2 <-  read_excel("data/raw_data/cohort_data/pntd.0007057.s002 (1).xlsx") %>%
-        select(simpleid=`ID#`,Blood) %>%
-        mutate(blood=factor(Blood, labels=c("O","A","B","AB"))) %>%
-        right_join(vax_adult_demo1, by ="simpleid") %>%
-        select(id,age,sex,blood) %>%
-        mutate(
-            studycode="RIKS2",
-            status="Vaccinee")
-    
-    # get demographics sex for RIKS1
-    # # child inventory
-    vax_R1_inventory<- read_excel("data/raw_data/cohort_data/RIKS 1 Complete Data Set Haiti Only.xls") %>%
-        select(`ID#`,Age,Gender,Blood,HIV) %>%
-        mutate(id=paste0("R1_",`ID#`)) %>%
-        mutate(age=as.numeric(Age)) %>%
-        mutate(sex=factor(Gender,labels=c("male","female"))) %>%
-        mutate(blood=factor(Blood,labels=c("O","A","B","AB"))) %>%
-        mutate(HIV=factor(HIV,labels=c("no","yes"))) %>%
-        select(id,age,sex,blood, HIV)%>%
-        mutate(            
-            studycode="RIKS1",
-            status="Vaccinee")
-    
-    
-    #get demographics for Bangladeshi vaccination
-    vaccinee_shipment <- read_excel("data/raw_data/sample-availability/Bangladesh_vaccinee_Shipment_edited.xlsx",
-                                    range = "B4:I58") %>%
-            filter(!is.na(ID)) %>%
-            mutate(Day=str_remove_all(Day,"Day \\(|\\)"))%>%
-            rename(Age = `Age (Years)`,
-                   Volume = `Volume( µl)`
-            ) %>%
-            mutate(study=str_extract(ID,"IMS|RB")) %>%
-            mutate(ID=str_replace(ID,"RB","RB_")) %>%
-            mutate(ID=str_replace(ID,"IMS-","IMS_"))
-    
-    
-    
-    #get the days for vaccinee
-    day_df <- data.frame()
-    for(i in 1:nrow(vaccinee_shipment)){
-            day_df <- bind_rows(
-                    day_df,
-                    data.frame(id=vaccinee_shipment$ID[i],
-                               day=str_split(vaccinee_shipment$Day,",")[[i]] %>%
-                                       as.numeric()
-                               
-                    )
-                    
-            ) 
-            
-    }
-    
-    #final roster
-    BGD_vax_roster <- vaccinee_shipment %>%
-            select(id=ID,
-                   sex=Gender,age=Age,study_code=study) %>%
-            right_join(day_df) %>%
-            #Kian was listing as day 1, confirmed it is day 0
-            # mutate(day=ifelse(day==0,1,day)) %>%
-            mutate(sample=paste0(id,"_D",day))  %>%
-            rename(studycode=study_code) %>%
-            distinct(studycode,id,age,sex) %>%
-            mutate(status="Vaccinee") %>%
-            mutate(sex=tolower(sex))
-    
-    
-    
-        
-    
-    final <- bind_rows(weill_data2,
-                       vax_adult_demo2,vax_R1_inventory,
-                       BGD_vax_roster
+    final <- bind_rows(weill_data2
                        ) %>%
                 mutate(age_group= cut(age,c(0,5,10,18,1000),right=FALSE) ) %>%
                 mutate(age_group=factor(age_group,labels = c("<5 years","5-9 years","10-17 years", "18+ years")))
-    
     
     return(final)
 }
@@ -630,47 +543,18 @@ getTimingData2 <- function(){
         case_timing <- readRDS("data/generated_data/imputed_sample_times.rds")
         
         
-        #vaccination timing data
-        vax_dates_import <- read_excel("data/raw_data/cohort_data/RIK Sero2 Electronic Lab Registry_ Sample inventory.xls")%>%
-                select(`RIK ID No.`,starts_with("Date")) %>%
-                gather(day,date,-(`RIK ID No.`))%>%
-                #get the id
-                mutate(id=str_remove(`RIK ID No.`,"RIK S2-|RIKS2-")) %>%
-                mutate(id=paste0("R2_",as.numeric(id))) %>%
-                #remove missing dates
-                filter(!is.na(date)) %>%
-                mutate(date=as.Date(date))%>%
-                #day
-                mutate(day=as.integer(str_remove(day,"Date of Day ")))%>%
-                mutate(sample=paste0(id," d",day))%>%
-                select(id,sample,day,date)
-        
-        
-        vax_baseline_date <- filter(vax_dates_import,day==0L) %>%
-                select(id,baseline_date=date)
-        
-        #calculate difference
-        vax_timing <- vax_dates_import %>% 
-                left_join(vax_baseline_date, by="id") %>%
-                mutate(day_actual=as.numeric(date-baseline_date)) %>%
-                select(id,sample,day,day_actual)
-        
         #limit to dates where we actually measured the samples
-        studydata <- read_rds("data/generated_data/rau_data/2021-10-18_rau_data.rds") %>%
+        studydata <- read_rds(here("data/raw_data/2021-10-18_rau_data.rds")) %>%
                         distinct(sample,id,day) %>%
                         select(id,day,sample)
         
         #combine and output
-        out <- bind_rows(case_timing,vax_timing) %>%
+        out <- case_timing %>%
                 right_join(studydata,by=c("id","day","sample")) %>%
-                #need to include a time for RIKS1 and RIKS2_27 day 90
                 # if we are missing a date, just use the regular day in this place
-                #as written now, should only apply to vaccinees
                 mutate(day_actual=ifelse(is.na(day_actual),
                                                  day, day_actual))
 
-                
-        
         return(out)
         
 }
@@ -681,7 +565,7 @@ getTimingData3 <- function(){
         
         
         #limit which id's are in our study versus not
-        studydata <- read_rds("data/generated_data/rau_data/2021-10-18_rau_data.rds") %>%
+        studydata <- read_rds(here("data/raw_data/2021-10-18_rau_data.rds")) %>%
                 distinct(sample,id,day) %>%
                 select(id,day,sample)
         
@@ -819,7 +703,7 @@ getTimingData3 <- function(){
         
         caseDATES <- bind_rows(smic_DATES,pic_DATES)        
         
-        master_data <- readstata13::read.dta13("data/raw_data/cohort_data/CIRS PIC SMIC Master DB March 2019.dta") %>%
+        master_data <- readstata13::read.dta13(here("data/raw_data/cohort_data/CIRS PIC SMIC Master DB March 2019.dta")) %>%
                 filter(studycode %in% c("SMIC","PIC")) %>%
                 # #limit to only cases no contacts
                 # #contact timing does not really matter
@@ -844,44 +728,8 @@ getTimingData3 <- function(){
                 mutate(day_actual=ifelse(day==2,4,day_actual)) %>%
                 select(id,sample,day,day_actual)
         
-        
-        
-        #vaccination timing data
-        vax_dates_import <- read_excel("data/raw_data/cohort_data/RIK Sero2 Electronic Lab Registry_ Sample inventory.xls")%>%
-                select(`RIK ID No.`,starts_with("Date")) %>%
-                gather(day,date,-(`RIK ID No.`))%>%
-                #get the id
-                mutate(id=str_remove(`RIK ID No.`,"RIK S2-|RIKS2-")) %>%
-                mutate(id=paste0("R2_",as.numeric(id))) %>%
-                #remove missing dates
-                filter(!is.na(date)) %>%
-                mutate(date=as.Date(date))%>%
-                #day
-                mutate(day=as.integer(str_remove(day,"Date of Day ")))%>%
-                mutate(sample=paste0(id," d",day))%>%
-                select(id,sample,day,date)
-        
-        
-        vax_baseline_date <- filter(vax_dates_import,day==0L) %>%
-                select(id,baseline_date=date)
-        
-        #calculate difference
-        vax_timing <- vax_dates_import %>% 
-                left_join(vax_baseline_date, by="id") %>%
-                mutate(day_actual=as.numeric(date-baseline_date)) %>%
-                select(id,sample,day,day_actual) %>%
-                #as written now, should only apply to vaccinees
-                right_join(studydata %>% filter(str_detect(id,"R2")),
-                           by=c("id","sample","day")) %>%
-                # if we are missing a date (RIKS2_27 day 90), just use the regular day in this place
-                mutate(day_actual=ifelse(is.na(day_actual),
-                                         day, day_actual))
-        
-        
-        
-        
         #combine and output
-        out <- bind_rows(case_timing,vax_timing) %>%
+        out <- case_timing %>%
                 right_join(studydata,by=c("id","day","sample")) %>%
                 #if RIKS1 or contact, assume exact timing of sample collection
                 mutate(day_actual=ifelse(str_detect(id,"R1|\\."),day,day_actual))
@@ -981,15 +829,8 @@ getLongLuminexRaw <- function(reload=TRUE){
                 ) %>% mutate(class="Dilution Series") %>%
                         mutate(layout="3")
                 
-                vaxlayout <- getLayout("vc_luminex_longtudinal/layout_lookup/layouts/Plate Layout_RIKS and SMIC Add-Ons_Clean.xlsx",
-                                       ranges=c("A1:Y17",
-                                                "A20:Y36",
-                                                "A39:Y55"),
-                                       type="Vaccine",token
-                ) %>% mutate(class="Full Isotypes") 
                 
-                
-                layouts <- bind_rows(classes_layout,subclasses_layout,IGG1N2_layout,dilutionseries1,dilutionseries2,vaxlayout) 
+                layouts <- bind_rows(classes_layout,subclasses_layout,IGG1N2_layout,dilutionseries1,dilutionseries2) 
                 
                 split_on_underscore <- function(string,n){
                         unlist(str_split(string,"_"))[n]
@@ -1065,7 +906,7 @@ getLongLuminexTidy <- function(reload
     }
 
     if(reload==FALSE){
-        df <- read_rds("data/generated_data/tidy_data/2021-10-18-tidy_data.rds")
+        df <- read_rds(here("data/raw_dat/2021-10-18-tidy_data.rds"))
     }
 
     return(df)
@@ -1076,7 +917,7 @@ getLongLuminexTidy <- function(reload
 
 #get old ELISA and vibriocidals
 getLongSeroTidy <-function(){
-    weill_data1 <- readstata13::read.dta13("data/raw_data/cohort_data/CIRS PIC SMIC Master DB March 2019.dta") 
+    weill_data1 <- readstata13::read.dta13(here("data/raw_data/cohort_data/CIRS PIC SMIC Master DB March 2019.dta"))
     # labels <- readstata13::varlabel(weill_data1)
     # labels <- data.frame(variable=names(labels),description=as.character(labels))
     weill_data2 <- weill_data1 %>% 
@@ -1773,7 +1614,7 @@ getLuminexSamplesRAU <- function(
     }
     
     if (pred_new==FALSE){
-        sample_data_RAU <- read_rds("data/generated_data/rau_data/2021-10-18_rau_data.rds") %>%
+        sample_data_RAU <- read_rds(here("data/raw_data/2021-10-18_rau_data.rds")) %>%
                 select(-blankMFI,-`Net MFI`)
 
     }
